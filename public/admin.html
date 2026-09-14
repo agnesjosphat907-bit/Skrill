@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1.0">
+    <title>Wallet Dashboard</title>
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: Arial, Helvetica, sans-serif;
+        }
+        
+        body {
+            background: #070707;
+            color: #fff;
+        }
+        
+        header {
+            height: 70px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 35px;
+            border-bottom: 1px solid #222;
+        }
+        
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 24px;
+        }
+        
+        .logo i {
+            font-size: 35px;
+        }
+        
+        nav {
+            display: flex;
+            gap: 35px;
+        }
+        
+        nav a {
+            text-decoration: none;
+            color: #ddd;
+        }
+        
+        .header-icons {
+            display: flex;
+            gap: 25px;
+            align-items: center;
+        }
+        
+        .avatar {
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            background: #333;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-weight: bold;
+        }
+        
+        .hero {
+            padding: 60px 20px;
+            text-align: center;
+        }
+        
+        .hero-icon {
+            width: 140px;
+            height: 140px;
+            margin: auto;
+            border-radius: 50%;
+            border: 2px solid #333;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 60px;
+            margin-bottom: 25px;
+        }
+        
+        .hero h1 {
+            font-size: 54px;
+            margin-bottom: 20px;
+        }
+        
+        .hero p {
+            font-size: 22px;
+            max-width: 850px;
+            margin: auto;
+            color: #bbb;
+            line-height: 1.7;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: auto;
+            padding: 30px;
+        }
+        
+        .card {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #131313;
+            border: 1px solid #2f2f2f;
+            padding: 25px;
+            border-radius: 20px;
+            margin-bottom: 25px;
+            transition: .3s;
+            cursor: pointer;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+            background: #1d1d1d;
+        }
+        
+        .left {
+            display: flex;
+            gap: 25px;
+            align-items: center;
+        }
+        
+        .icon-box {
+            width: 130px;
+            height: 130px;
+            border: 1px solid #3c3c3c;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            border-radius: 18px;
+            font-size: 55px;
+        }
+        
+        .card h2 {
+            font-size: 34px;
+            margin-bottom: 10px;
+        }
+        
+        .card h4 {
+            font-size: 24px;
+            margin-bottom: 15px;
+            color: #ddd;
+        }
+        
+        .card p {
+            color: #aaa;
+            font-size: 22px;
+            line-height: 1.5;
+        }
+        
+        .arrow {
+            font-size: 30px;
+        }
+        
+        .security {
+            display: flex;
+            align-items: center;
+            gap: 25px;
+            background: #141414;
+            padding: 25px;
+            border-radius: 18px;
+            border: 1px solid #333;
+            margin-bottom: 120px;
+        }
+        
+        .shield {
+            font-size: 55px;
+        }
+        
+        .security h3 {
+            font-size: 30px;
+            margin-bottom: 10px;
+        }
+        
+        .security p {
+            font-size: 20px;
+            color: #aaa;
+        }
+        
+        footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 90px;
+            background: #0d0d0d;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            border-top: 1px solid #222;
+        }
+        
+        footer a {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            color: white;
+            text-decoration: none;
+        }
+        
+        footer i {
+            font-size: 26px;
+        }
+        
+        .plus {
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            border: none;
+            background: #555;
+            color: white;
+            font-size: 42px;
+            cursor: pointer;
+            margin-top: -45px;
+        }
+        
+        @media(max-width:900px) {
+            nav {
+                display: none;
+            }
+            .hero h1 {
+                font-size: 40px;
+            }
+            .card {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 20px;
+            }
+            .left {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            .icon-box {
+                width: 90px;
+                height: 90px;
+                font-size: 40px;
+            }
+            .card h2 {
+                font-size: 24px;
+            }
+            .card p {
+                font-size: 17px;
+            }
+            .arrow {
+                align-self: flex-end;
+            }
+        }
+    </style>
+
+</head>
+
+<body>
+
+    <header>
+
+        <div class="logo">
+            <i class="fa-solid fa-wallet"></i>
+            <h2>BitvalveWalletHub</h2>
+        </div>
+
+        <nav>
+
+            <a href="#">Trade</a>
+            <a href="#">Escrow</a>
+            <a href="#">Gift Cards</a>
+            <a href="#">Wallets</a>
+            <a href="#">Support</a>
+
+        </nav>
+
+        <div class="header-icons">
+
+            <i class="fa-regular fa-bell"></i>
+            <i class="fa-regular fa-message"></i>
+
+            <div class="avatar">
+                B
+            </div>
+
+        </div>
+
+    </header>
+
+    <section class="hero">
+
+        <div class="hero-icon">
+            <i class="fa-solid fa-wallet"></i>
+        </div>
+
+        <h1>Manage Your Payment</h1>
+
+        <p>
+            Link your wallet, receive payments, access gift cards and manage your transactions securely.
+        </p>
+
+    </section>
+
+    <div class="container">
+
+        <div class="card">
+
+            <div class="left">
+
+                <div class="icon-box">
+                    <i class="fa-solid fa-wallet"></i>
+                </div>
+
+                <div>
+
+                    <h2>1. LINK YOUR WALLET</h2>
+
+                    <h4>TO RECEIVE PAYMENT</h4>
+
+                    <p>
+                        Connect your preferred wallet and receive payments from buyers securely.
+                    </p>
+
+                </div>
+
+            </div>
+
+            <div class="arrow">
+                <i class="fa-solid fa-chevron-right"></i>
+            </div>
+
+        </div>
+
+        <div class="card">
+
+            <div class="left">
+
+                <div class="icon-box">
+                    <i class="fa-solid fa-circle-xmark"></i>
+                </div>
+
+                <div>
+
+                    <h2>2. CANCEL PAYMENT</h2>
+
+                    <p>
+                        Cancel an ongoing payment if you no longer wish to proceed.
+                    </p>
+
+                </div>
+
+            </div>
+
+            <div class="arrow">
+                <i class="fa-solid fa-chevron-right"></i>
+            </div>
+
+        </div>
+
+        <div class="card">
+
+            <div class="left">
+
+                <div class="icon-box">
+                    <i class="fa-solid fa-gift"></i>
+                </div>
+
+                <div>
+
+                    <h2>3. LINK WALLET</h2>
+
+                    <h4>ACCESS GIFT CARD STORE</h4>
+
+                    <p>
+                        Link your wallet to browse and purchase gift cards from the store.
+                    </p>
+
+                </div>
+
+            </div>
+
+            <div class="arrow">
+                <i class="fa-solid fa-chevron-right"></i>
+            </div>
+
+        </div>
+
+        <div class="security">
+
+            <div class="shield">
+                <i class="fa-solid fa-shield-halved"></i>
+            </div>
+
+            <div>
+
+                <h3>Your security is our priority</h3>
+
+                <p>
+                    All transactions are protected using end-to-end encryption.
+                </p>
+
+            </div>
+
+        </div>
+
+    </div>
+
+    <footer>
+
+        <a href="#">
+            <i class="fa-solid fa-table-cells-large"></i>
+            <span>Dashboard</span>
+        </a>
+
+        <a href="#">
+            <i class="fa-solid fa-right-left"></i>
+            <span>Trade</span>
+        </a>
+
+        <button class="plus">
++
+</button>
+
+        <a href="#">
+            <i class="fa-solid fa-wallet"></i>
+            <span>Wallets</span>
+        </a>
+
+        <a href="#">
+            <i class="fa-regular fa-user"></i>
+            <span>Profile</span>
+        </a>
+
+    </footer>
+
+    <script>
+        document.querySelectorAll(".card").forEach(card => {
+
+            card.addEventListener("click", () => {
+
+                card.style.transform = "scale(.98)";
+
+                setTimeout(() => {
+
+                    card.style.transform = "scale(1)";
+
+                }, 150);
+
+            });
+
+        });
+
+        document.querySelector(".plus").onclick = () => {
+
+            alert("Create Offer clicked");
+
+        };
+    </script>
+
+</body>
+
+</html>

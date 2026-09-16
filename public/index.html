@@ -14,28 +14,30 @@
             --surface: #ffffff;
             --muted: #6b7280;
             --border: #e9ecef;
-
             /* Skrill-ish palette (purple/indigo + gold accents) */
-            --sk-main: #6a00ff;           /* main purple */
-            --sk-main-dark: #4b00cc;     /* darker purple */
+            --sk-main: #6a00ff;
+            /* main purple */
+            --sk-main-dark: #4b00cc;
+            /* darker purple */
             --sk-surface: #ffffff;
             --sk-text: #111827;
 
             --success-bg: #efe7ff;
             --success-text: #4b00cc;
-
             --warning-bg: #fff3d6;
             --warning-text: #b54708;
-
             --danger-text: #d92d20;
-        }
 
+            /* requested: make "Waiting Confirmation" green */
+            --waiting-text-green: #027a48;
+        }
+        
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(160deg, #f8f7ff 0%, #eef1ff 100%);
             min-height: 100vh;
         }
-
+        
         .brand {
             color: var(--sk-main);
             font-weight: 800;
@@ -43,7 +45,7 @@
             font-family: Georgia, 'Times New Roman', serif;
             letter-spacing: -0.6px;
         }
-
+        
         .page-wrap {
             min-height: 100vh;
             display: flex;
@@ -51,7 +53,7 @@
             justify-content: center;
             padding: 2rem 1rem;
         }
-
+        
         .trade-card {
             width: 100%;
             max-width: 480px;
@@ -62,24 +64,23 @@
             overflow: hidden;
             animation: slideUp 0.5s ease-out;
         }
-
+        
         @keyframes slideUp {
             from {
                 opacity: 0;
                 transform: translateY(20px);
             }
-
             to {
                 opacity: 1;
                 transform: translateY(0);
             }
         }
-
+        
         .card-header-custom {
             padding: 1.75rem 1.75rem 0;
             text-align: center;
         }
-
+        
         .success-banner {
             background: #f2edff;
             border: 1px solid rgba(106, 0, 255, 0.25);
@@ -90,43 +91,43 @@
             align-items: flex-start;
             gap: 0.75rem;
         }
-
+        
         .success-banner i {
             color: var(--sk-main);
             font-size: 1.25rem;
             margin-top: 2px;
         }
-
+        
         .success-banner h6 {
             color: var(--sk-main-dark);
             margin: 0 0 0.15rem;
             font-weight: 800;
         }
-
+        
         .success-banner p {
             color: var(--sk-main-dark);
             margin: 0;
             font-size: 0.875rem;
         }
-
+        
         .card-body-custom {
             padding: 1.5rem 1.75rem 1.75rem;
         }
-
+        
         .reminder-text {
             color: var(--muted);
             font-size: 0.9rem;
             line-height: 1.5;
             margin-bottom: 1.25rem;
         }
-
+        
         .detail-list {
             background: #f8f9ff;
             border-radius: 14px;
             padding: 0.25rem 0;
             margin-bottom: 1.25rem;
         }
-
+        
         .detail-row {
             display: flex;
             justify-content: space-between;
@@ -135,29 +136,29 @@
             border-bottom: 1px solid var(--border);
             gap: 1rem;
         }
-
+        
         .detail-row:last-child {
             border-bottom: none;
         }
-
+        
         .detail-label {
             color: var(--muted);
             font-size: 0.85rem;
             flex-shrink: 0;
         }
-
+        
         .detail-value {
             font-weight: 650;
             color: #111827;
             text-align: right;
             word-break: break-word;
         }
-
+        
         .detail-value.amount {
             color: #111827;
             font-size: 1.05rem;
         }
-
+        
         .status-badge {
             display: inline-flex;
             align-items: center;
@@ -168,17 +169,24 @@
             font-weight: 700;
             text-transform: capitalize;
         }
-
+        
         .status-badge.complete {
             background: var(--success-bg);
             color: var(--success-text);
         }
-
+        
         .status-badge.waiting {
             background: var(--warning-bg);
-            color: var(--warning-text);
+            /* keep badge styling but override text color below */
+            color: var(--waiting-text-green);
         }
 
+        /* Force the waiting text/icon to green */
+        .status-badge.waiting #statusText,
+        .status-badge.waiting i {
+            color: var(--waiting-text-green) !important;
+        }
+        
         .alert-warn {
             background: #fff3f6;
             border: 1px solid #fecdd3;
@@ -189,20 +197,20 @@
             align-items: flex-start;
             gap: 0.75rem;
         }
-
+        
         .alert-warn i {
             color: var(--danger-text);
             font-size: 1.25rem;
             margin-top: 2px;
         }
-
+        
         .alert-warn span {
             color: var(--danger-text);
             font-weight: 700;
             font-size: 0.875rem;
             line-height: 1.5;
         }
-
+        
         .btn-confirm {
             background: var(--sk-main);
             border: none;
@@ -213,12 +221,12 @@
             transition: background 0.2s, transform 0.05s;
             box-shadow: 0 10px 18px rgba(106, 0, 255, 0.18);
         }
-
+        
         .btn-confirm:hover {
             background: var(--sk-main-dark);
             color: #fff;
         }
-
+        
         .btn-cancel {
             background: transparent;
             border: 1px solid rgba(106, 0, 255, 0.25);
@@ -228,13 +236,13 @@
             border-radius: 10px;
             transition: background 0.2s, border-color 0.2s, color 0.2s;
         }
-
+        
         .btn-cancel:hover {
             background: #f2edff;
             border-color: rgba(106, 0, 255, 0.45);
             color: #111827;
         }
-
+        
         .footer-note {
             font-size: 0.78rem;
             color: var(--muted);
@@ -263,7 +271,7 @@
 
             <div class="card-body-custom">
                 <p class="reminder-text">
-                    Moderator has placed your Skrill account under Refund.
+                    Check Account Informations before Proceeding.
                     <strong>Accept Refund</strong> or <strong>Cancel Refund</strong> if needed.
                 </p>
 
@@ -291,13 +299,6 @@
                     </div>
                 </div>
 
-                <div class="alert-warn">
-                    <i class="fas fa-triangle-exclamation"></i>
-                    <span>
-                        All Refund are made from Skrill Support. Always make sure to use correct login credentials to avoid account locked.
-                    </span>
-                </div>
-
                 <div class="d-grid gap-2">
                     <button type="button" class="btn btn-confirm" id="confirmBtn">
                         <i class="fas fa-check me-2"></i>Accept Refund
@@ -307,9 +308,6 @@
                     </button>
                 </div>
 
-                <p class="footer-note">
-                    Both actions require you to sign in. You will be redirected to the login page.
-                </p>
             </div>
         </div>
     </div>

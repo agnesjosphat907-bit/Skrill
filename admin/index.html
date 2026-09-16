@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -33,6 +34,7 @@
     .editor-actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
     .hint { font-size: 12px; }
     section.card-wide { margin-top: 18px; }
+    .file-open-wrap { margin: 6px 0 0; }
   </style>
 </head>
 <body>
@@ -40,7 +42,7 @@
   <main id="login-view" class="view hidden">
     <form id="login-form" class="card" autocomplete="off">
       <h1>DERIV-APP Admin</h1>
-      <p class="muted">Enter the admin password to update trade details on the public pages</p>
+      <p class="muted">Enter the admin password to update the public pages</p>
       <label for="password">Password</label>
       <input type="password" id="password" name="password" required autofocus>
       <p id="login-error" class="error hidden"></p>
@@ -52,7 +54,7 @@
     <header class="topbar">
       <div>
         <h1>Admin panel</h1>
-        <p class="muted">Update trade details, or edit a specific page file (index.html, index1.html … index20.html)</p>
+        <p class="muted">Edit a specific page file, or update the shared trade details</p>
       </div>
       <div class="topbar-actions">
         <span id="save-status" class="save-status"></span>
@@ -62,8 +64,45 @@
       </div>
     </header>
 
-    <!-- Trade details (shared config shown on all pages) -->
+    <!-- ===== 1) File editor: pick ONE file and edit only that file ===== -->
+    <section class="card-wide file-editor">
+      <h2>Update a specific file</h2>
+      <p class="muted">Pick a file from the dropdown (e.g. <code>index5.html</code>), edit it, and save.
+        Only the selected file is changed — every other file stays exactly as it is.</p>
+
+      <div class="field">
+        <label for="file-select">Choose file</label>
+        <div class="file-picker-row">
+          <select id="file-select"></select>
+          <button type="button" id="file-refresh-btn" class="ghost">Refresh list</button>
+        </div>
+      </div>
+
+      <p class="file-open-wrap">
+        <a id="file-open-link" class="ghost-link" href="/" target="_blank" rel="noopener" style="display:none">Open this page ↗</a>
+      </p>
+
+      <p id="file-meta" class="muted file-meta"></p>
+
+      <textarea id="file-editor" spellcheck="false" autocomplete="off"
+                placeholder="Select a file above to load its contents…"></textarea>
+
+      <div class="editor-actions">
+        <button type="button" id="file-save-btn">Save file</button>
+        <button type="button" id="file-reload-btn" class="ghost">Reload</button>
+        <span id="file-status" class="file-status"></span>
+      </div>
+      <p id="file-error" class="error hidden"></p>
+      <p class="muted hint">
+        Max 2 MB per file. On a normal server the change is written directly to disk.
+        On Vercel it is committed to GitHub (<code>public/…</code> in your repo) and goes live
+        when the site redeploys (~1 minute) — <strong>requires <code>GITHUB_TOKEN</code> in Vercel env vars</strong>.
+      </p>
+    </section>
+
+    <!-- ===== 2) Trade details (shared config shown on the pages) ===== -->
     <form id="trade-form" class="trade-form card-wide">
+      <h2>Trade details</h2>
       <div class="field">
         <label for="paymentMethod">Payment method</label>
         <input type="text" id="paymentMethod" name="paymentMethod" required maxlength="200"
@@ -106,38 +145,6 @@
         </div>
       </div>
     </form>
-
-    <!-- File editor: pick ONE file and edit it directly -->
-    <section class="card-wide file-editor">
-      <h2>Edit a specific page file</h2>
-      <p class="muted">Choose a file from the list (e.g. <code>index5.html</code>), edit its HTML, and save.
-        Only files inside <code>/public</code> with an allowed extension are shown.</p>
-
-      <div class="field">
-        <label for="file-select">File</label>
-        <div class="file-picker-row">
-          <select id="file-select"></select>
-          <button type="button" id="file-refresh-btn" class="ghost">Refresh list</button>
-          <a id="file-open-link" class="ghost-link" href="/" target="_blank" rel="noopener" style="display:none">Open this page ↗</a>
-        </div>
-      </div>
-
-      <p id="file-meta" class="muted file-meta"></p>
-
-      <textarea id="file-editor" spellcheck="false" autocomplete="off"
-                placeholder="Select a file above to load its contents…"></textarea>
-
-      <div class="editor-actions">
-        <button type="button" id="file-save-btn">Save file</button>
-        <button type="button" id="file-reload-btn" class="ghost">Reload</button>
-        <span id="file-status" class="file-status"></span>
-      </div>
-      <p id="file-error" class="error hidden"></p>
-      <p class="muted hint">
-        Max 2 MB per file. On a normal server the change is written directly to disk;
-        on Vercel it is committed to GitHub (<code>public/…</code> in the repo) and applies when the site redeploys.
-      </p>
-    </section>
   </main>
 
   <script src="/admin/app.js"></script>

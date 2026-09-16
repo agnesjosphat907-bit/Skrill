@@ -69,7 +69,7 @@ function updatePreview() {
   pvStatus.textContent = statusLabel(statusEl.value);
 }
 
-// Resolve the dropdown value to a list of target files (index1..index20 only)
+// Resolve dropdown value -> list of index1..index20 filenames
 function resolveTargetFiles() {
   const value = targetPages.value;
 
@@ -92,15 +92,7 @@ function resolveTargetFiles() {
   return [`index${n}.html`];
 }
 
-// ================= applying trade details into HTML =================
-//
-// Replace strategy:
-// - Payment method: data-payment-method="..."
-// - Trade id:       data-trade-id="..."
-// - Amount:         data-amount="..."
-// - Status:         data-status="waiting|complete"
-//
-// If no attributes found, fall back to elements with matching ids.
+// ================= HTML trade marker replacement =================
 
 function escapeAttr(s) {
   return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
@@ -147,8 +139,8 @@ function applyTradeToHtml(html, trade) {
     }
     if (!fallbackDid) {
       throw new Error(
-        'Could not find a known trade details marker in the target file. ' +
-        'Use data-payment-method / data-trade-id / data-amount / data-status attributes.'
+        'No trade markers found in this page. ' +
+        'Add data-payment-method / data-trade-id / data-amount / data-status attributes (or ids).'
       );
     }
   }
@@ -201,7 +193,7 @@ loginForm.addEventListener('submit', async (e) => {
   }
 });
 
-// ================= trade form submission (apply to selected files) =================
+// ================= save (batch) =================
 
 tradeForm.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -219,39 +211,24 @@ tradeForm.addEventListener('submit', async (e) => {
 
   try {
     const targets = resolveTargetFiles();
-    const results = [];
-    let failed = 0;
 
-    for (const file of targets) {
-      try {
-        // Fetch current content (server returns GitHub copy on Vercel)
-        const { content } = await api(
-          `/admin/api/content?file=${encodeURIComponent(file)}`
-        );
+    // Fetch each target page's current content in parallel
+    const contents = await Promise.all(
+      targets.map(async (file) => {
+        const data = await api(`/admin/api/content?file=${encodeURIComponent(file)}`);
+        return { file, content: applyTradeToHtml(data.content, trade) };
+      })
+    );
 
-        const newHtml = applyTradeToHtml(content, trade);
-
-        const data = await api('/admin/api/content', {
-          method: 'POST',
-          body: JSON.stringify({ file, content: newHtml }),
-        });
-
-        results.push(`${data.file} ✓`);
-      } catch (err) {
-        failed += 1;
-        results.push(`${file} ✗ (${err.message})`);
-      }
-    }
+    // Save all in ONE request (single GitHub commit on Vercel)
+    const result = await api('/admin/api/batch', {
+      method: 'POST',
+      body: JSON.stringify({ files: contents }),
+    });
 
     dirty = false;
-
-    const summary = `${targets.length - failed}/${targets.length} files saved`;
-    saveStatus.textContent = summary;
-    lastSaved.textContent = `Last saved: ${new Date().toLocaleString()} — ${results.join(', ')}`;
-
-    if (failed > 0) {
-      showError(saveError, `${failed} file(s) failed. See details next to Last saved.`);
-    }
+    saveStatus.textContent = `Saved ${result.saved.length} file(s) via ${result.savedVia || 'unknown'}`;
+    lastSaved.textContent = `Last saved: ${new Date(result.savedAt || Date.now()).toLocaleString()}`;
   } catch (err) {
     showError(saveError, err.message);
     saveStatus.textContent = '';

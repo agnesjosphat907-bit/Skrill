@@ -6,6 +6,34 @@
   <meta name="robots" content="noindex, nofollow">
   <title>DERIV-APP Admin</title>
   <link rel="stylesheet" href="/admin/style.css">
+  <style>
+    /* Small additions for the file editor section (works even if style.css is old) */
+    .file-editor textarea {
+      width: 100%;
+      min-height: 420px;
+      box-sizing: border-box;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+      line-height: 1.5;
+      padding: 10px 12px;
+      border: 1px solid #444;
+      border-radius: 8px;
+      background: #10141a;
+      color: #e6edf3;
+      resize: vertical;
+      white-space: pre;
+      overflow-x: auto;
+    }
+    .file-editor textarea:disabled { opacity: 0.5; }
+    .file-picker-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .file-picker-row select { flex: 1 1 260px; max-width: 420px; }
+    .file-status { font-size: 13px; color: #8b949e; }
+    .file-status.ok { color: #3fb950; }
+    .file-meta { font-size: 12px; }
+    .editor-actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+    .hint { font-size: 12px; }
+    section.card-wide { margin-top: 18px; }
+  </style>
 </head>
 <body>
 
@@ -23,8 +51,8 @@
   <main id="editor-view" class="view hidden">
     <header class="topbar">
       <div>
-        <h1>Trade details</h1>
-        <p class="muted">These values appear on <code>index.html</code> and <code>p2p.html</code></p>
+        <h1>Admin panel</h1>
+        <p class="muted">Update trade details, or edit a specific page file (index.html, index1.html … index20.html)</p>
       </div>
       <div class="topbar-actions">
         <span id="save-status" class="save-status"></span>
@@ -34,6 +62,7 @@
       </div>
     </header>
 
+    <!-- Trade details (shared config shown on all pages) -->
     <form id="trade-form" class="trade-form card-wide">
       <div class="field">
         <label for="paymentMethod">Payment method</label>
@@ -77,6 +106,38 @@
         </div>
       </div>
     </form>
+
+    <!-- File editor: pick ONE file and edit it directly -->
+    <section class="card-wide file-editor">
+      <h2>Edit a specific page file</h2>
+      <p class="muted">Choose a file from the list (e.g. <code>index5.html</code>), edit its HTML, and save.
+        Only files inside <code>/public</code> with an allowed extension are shown.</p>
+
+      <div class="field">
+        <label for="file-select">File</label>
+        <div class="file-picker-row">
+          <select id="file-select"></select>
+          <button type="button" id="file-refresh-btn" class="ghost">Refresh list</button>
+          <a id="file-open-link" class="ghost-link" href="/" target="_blank" rel="noopener" style="display:none">Open this page ↗</a>
+        </div>
+      </div>
+
+      <p id="file-meta" class="muted file-meta"></p>
+
+      <textarea id="file-editor" spellcheck="false" autocomplete="off"
+                placeholder="Select a file above to load its contents…"></textarea>
+
+      <div class="editor-actions">
+        <button type="button" id="file-save-btn">Save file</button>
+        <button type="button" id="file-reload-btn" class="ghost">Reload</button>
+        <span id="file-status" class="file-status"></span>
+      </div>
+      <p id="file-error" class="error hidden"></p>
+      <p class="muted hint">
+        Max 2 MB per file. On a normal server the change is written directly to disk;
+        on Vercel it is committed to GitHub (<code>public/…</code> in the repo) and applies when the site redeploys.
+      </p>
+    </section>
   </main>
 
   <script src="/admin/app.js"></script>

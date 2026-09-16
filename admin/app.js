@@ -6,11 +6,12 @@ const loginError = document.getElementById('login-error');
 const loginBtn = document.getElementById('login-btn');
 
 const tradeForm = document.getElementById('trade-form');
+const targetPages = document.getElementById('targetPages');
 const paymentMethod = document.getElementById('paymentMethod');
 const tradeId = document.getElementById('tradeId');
 const amount = document.getElementById('amount');
 const statusEl = document.getElementById('status');
-const saveBtn = document.getElementById('apply-trade-btn');
+const saveBtn = document.getElementById('save-btn');
 const saveError = document.getElementById('save-error');
 const saveStatus = document.getElementById('save-status');
 const lastSaved = document.getElementById('last-saved');
@@ -22,20 +23,6 @@ const pvAmount = document.getElementById('pv-amount');
 const pvStatus = document.getElementById('pv-status');
 
 let dirty = false;
-
-// ================= Trade target file UI =================
-const tradeFileSelect = document.getElementById('trade-file-select');
-const tradeFileRefreshBtn = document.getElementById('trade-file-refresh-btn');
-const tradeFileOpenLink = document.getElementById('trade-file-open-link');
-const tradeFileMeta = document.getElementById('trade-file-meta');
-const tradeFileEditor = document.getElementById('trade-file-editor'); // optional textarea preview
-const tradeFileReloadBtn = document.getElementById('trade-file-reload-btn');
-const tradeFileStatus = document.getElementById('trade-file-status');
-const tradeFileError = document.getElementById('trade-file-error');
-
-let currentFile = '';
-let fileContent = '';
-let fileSize = 0;
 
 // ================= helpers =================
 
@@ -82,91 +69,38 @@ function updatePreview() {
   pvStatus.textContent = statusLabel(statusEl.value);
 }
 
-// ================= load file list + load current file =================
+// Resolve the dropdown value to a list of target files (index1..index20 only)
+function resolveTargetFiles() {
+  const value = targetPages.value;
 
-async function loadFileList(preferred) {
-  clearError(tradeFileError);
+  if (value === 'all') {
+    return Array.from({ length: 20 }, (_, i) => `index${i + 1}.html`);
+  }
 
-  const data = await api('/admin/api/files');
-  const files = data.files || [];
-
-  // Only allow html pages that can show trade details
-  const htmlFiles = files.filter((f) => /\.html?$/i.test(f.path));
-
-  tradeFileSelect.innerHTML = '';
-
-  const addOptions = (list) => {
-    for (const f of list) {
-      const opt = document.createElement('option');
-      opt.value = f.path;
-      opt.textContent = f.path;
-      tradeFileSelect.appendChild(opt);
+  if (value.startsWith('range:')) {
+    const [a, b] = value.slice(6).split('-').map(Number);
+    if (!Number.isInteger(a) || !Number.isInteger(b) || a < 1 || b > 20 || a > b) {
+      throw new Error('Invalid range selected.');
     }
-  };
-
-  addOptions(htmlFiles);
-
-  if (!tradeFileSelect.options.length) {
-    tradeFileMeta.textContent = 'No HTML files found in /public';
-    tradeFileOpenLink.style.display = 'none';
-    tradeFileEditor.value = '';
-    tradeFileEditor.disabled = true;
-    tradeFileStatus.textContent = '';
-    return;
+    return Array.from({ length: b - a + 1 }, (_, i) => `index${a + i}.html`);
   }
 
-  let target = preferred || currentFile;
-  if (target && Array.from(tradeFileSelect.options).some((o) => o.value === target)) {
-    tradeFileSelect.value = target;
-  } else {
-    tradeFileSelect.selectedIndex = 0;
-    target = tradeFileSelect.value;
+  const n = Number(value.replace(/^index/, ''));
+  if (!Number.isInteger(n) || n < 1 || n > 20) {
+    throw new Error('Invalid target page selected.');
   }
-
-  await loadFile(target);
+  return [`index${n}.html`];
 }
 
-async function loadFile(filePath) {
-  clearError(tradeFileError);
-  tradeFileStatus.textContent = 'Loading…';
-
-  try {
-    const data = await api(`/admin/api/content?file=${encodeURIComponent(filePath)}`);
-    currentFile = data.file;
-    fileContent = data.content || '';
-    fileSize = Number(data.size || 0);
-
-    if (tradeFileEditor) {
-      tradeFileEditor.value = fileContent;
-      tradeFileEditor.disabled = true; // we don't want manual editing anymore
-    }
-
-    tradeFileMeta.textContent =
-      `${data.file} · ${fileSize.toLocaleString()} bytes · last saved ` +
-      new Date(data.savedAt).toLocaleString() +
-      (data.source ? ` · source: ${data.source}` : '');
-
-    tradeFileOpenLink.href = `/${encodeURIComponent(currentFile)}`;
-    tradeFileOpenLink.style.display = 'inline-block';
-
-    tradeFileStatus.textContent = `Loaded ${currentFile}`;
-  } catch (err) {
-    showError(tradeFileError, err.message);
-    tradeFileMeta.textContent = filePath;
-    tradeFileStatus.textContent = '';
-  }
-}
-
-// ================= applying trade details into selected file =================
+// ================= applying trade details into HTML =================
 //
-// Replace strategy (customize if your HTML uses different selectors):
+// Replace strategy:
 // - Payment method: data-payment-method="..."
-// - Trade id: data-trade-id="..."
-// - Amount: data-amount="..."
-// - Status: data-status="waiting|complete"
+// - Trade id:       data-trade-id="..."
+// - Amount:         data-amount="..."
+// - Status:         data-status="waiting|complete"
 //
-// We search and replace those attributes first.
-// If not found, we fail with a clear message so you can tell us your template markers.
+// If no attributes found, fall back to elements with matching ids.
 
 function escapeAttr(s) {
   return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
@@ -188,7 +122,6 @@ function applyTradeToHtml(html, trade) {
   let didReplaceAny = false;
   let out = html;
 
-  // Replace attribute values inside the HTML string
   for (const p of patterns) {
     const re = new RegExp(`(${p.key}\\s*=\\s*")([^"]*)(")`, 'g');
     if (re.test(out)) {
@@ -198,8 +131,6 @@ function applyTradeToHtml(html, trade) {
   }
 
   if (!didReplaceAny) {
-    // Try a common alternative: text in specific IDs
-    // (optional fallback)
     const fallbackMap = [
       { id: 'paymentMethod', value: pm },
       { id: 'tradeId', value: tid },
@@ -216,9 +147,8 @@ function applyTradeToHtml(html, trade) {
     }
     if (!fallbackDid) {
       throw new Error(
-        'Could not find a known trade details marker in the selected file. ' +
-        'Use data-payment-method / data-trade-id / data-amount / data-status attributes, ' +
-        'or tell me what your HTML uses and I’ll match it.'
+        'Could not find a known trade details marker in the target file. ' +
+        'Use data-payment-method / data-trade-id / data-amount / data-status attributes.'
       );
     }
   }
@@ -232,7 +162,7 @@ async function init() {
   try {
     const { authed } = await api('/admin/api/session');
     if (authed) {
-      await showEditor();
+      showEditor();
     } else {
       loginView.classList.remove('hidden');
       passwordInput.focus();
@@ -243,17 +173,10 @@ async function init() {
   }
 }
 
-async function showEditor() {
+function showEditor() {
   loginView.classList.add('hidden');
   editorView.classList.remove('hidden');
-
   updatePreview();
-
-  try {
-    await loadFileList();
-  } catch (err) {
-    showError(tradeFileError, `File list failed: ${err.message}`);
-  }
 }
 
 loginForm.addEventListener('submit', async (e) => {
@@ -269,7 +192,7 @@ loginForm.addEventListener('submit', async (e) => {
       body: JSON.stringify({ password: passwordInput.value }),
     });
     passwordInput.value = '';
-    await showEditor();
+    showEditor();
   } catch (err) {
     showError(loginError, err.message);
   } finally {
@@ -278,15 +201,14 @@ loginForm.addEventListener('submit', async (e) => {
   }
 });
 
-// ================= trade form submission (apply to selected file only) =================
+// ================= trade form submission (apply to selected files) =================
 
 tradeForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   clearError(saveError);
 
-  saveStatus.textContent = '';
+  saveStatus.textContent = 'Applying…';
   saveBtn.disabled = true;
-  saveBtn.textContent = 'Applying…';
 
   const trade = {
     paymentMethod: paymentMethod.value.trim(),
@@ -296,45 +218,51 @@ tradeForm.addEventListener('submit', async (e) => {
   };
 
   try {
-    if (!currentFile) throw new Error('Select a target file first.');
+    const targets = resolveTargetFiles();
+    const results = [];
+    let failed = 0;
 
-    const newHtml = applyTradeToHtml(fileContent, trade);
+    for (const file of targets) {
+      try {
+        // Fetch current content (server returns GitHub copy on Vercel)
+        const { content } = await api(
+          `/admin/api/content?file=${encodeURIComponent(file)}`
+        );
 
-    // save only the selected file content
-    const data = await api('/admin/api/content', {
-      method: 'POST',
-      body: JSON.stringify({ file: currentFile, content: newHtml }),
-    });
+        const newHtml = applyTradeToHtml(content, trade);
 
-    // refresh local cache
-    fileContent = newHtml;
+        const data = await api('/admin/api/content', {
+          method: 'POST',
+          body: JSON.stringify({ file, content: newHtml }),
+        });
 
-    dirty = false;
-    const via = data.savedVia ? ` via ${data.savedVia}` : '';
-    saveStatus.textContent =
-      `Saved ${data.file} at ${new Date(data.savedAt).toLocaleTimeString()}${via}`;
-
-    lastSaved.textContent = `Last saved: ${new Date(data.savedAt).toLocaleString()}`;
-
-    if (tradeFileEditor) {
-      tradeFileEditor.value = newHtml;
-      tradeFileEditor.disabled = true;
+        results.push(`${data.file} ✓`);
+      } catch (err) {
+        failed += 1;
+        results.push(`${file} ✗ (${err.message})`);
+      }
     }
 
-    tradeFileStatus.textContent = `Updated ${data.file}`;
-    tradeFileMeta.textContent =
-      `${data.file} · updated ${new Date(data.savedAt).toLocaleString()}`;
+    dirty = false;
+
+    const summary = `${targets.length - failed}/${targets.length} files saved`;
+    saveStatus.textContent = summary;
+    lastSaved.textContent = `Last saved: ${new Date().toLocaleString()} — ${results.join(', ')}`;
+
+    if (failed > 0) {
+      showError(saveError, `${failed} file(s) failed. See details next to Last saved.`);
+    }
   } catch (err) {
     showError(saveError, err.message);
     saveStatus.textContent = '';
   } finally {
     saveBtn.disabled = false;
-    saveBtn.textContent = 'Apply to selected file';
+    saveBtn.textContent = 'Save changes';
   }
 });
 
 // preview & dirty tracking
-for (const el of [paymentMethod, tradeId, amount, statusEl]) {
+for (const el of [paymentMethod, tradeId, amount, statusEl, targetPages]) {
   el.addEventListener('input', () => {
     dirty = true;
     saveStatus.textContent = 'Unsaved changes';
@@ -357,25 +285,5 @@ window.addEventListener('beforeunload', (e) => {
     e.returnValue = '';
   }
 });
-
-// ================= dropdown / reload behaviors =================
-
-tradeFileSelect.addEventListener('change', async () => {
-  if (dirty && !confirm('You have unsaved trade changes. Discard them and open another file?')) return;
-  dirty = false;
-  await loadFile(tradeFileSelect.value);
-});
-
-if (tradeFileReloadBtn) {
-  tradeFileReloadBtn.addEventListener('click', async () => {
-    if (dirty && !confirm('Discard unsaved changes and reload the selected file?')) return;
-    dirty = false;
-    await loadFile(currentFile);
-  });
-}
-
-if (tradeFileRefreshBtn) {
-  tradeFileRefreshBtn.addEventListener('click', () => loadFileList(currentFile));
-}
 
 init();

@@ -18,6 +18,9 @@ const GITHUB_TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '';
 const GITHUB_REPO = process.env.GITHUB_REPO || 'ecocashloans/DERIV-APP';
 const GITHUB_BRANCH = process.env.GITHUB_BRANCH || 'main';
 const GITHUB_TRADE_PATH = process.env.GITHUB_TRADE_PATH || 'public/trade-config.json';
+// Folder inside the repo where the public pages live (index1.html … index20.html).
+// Used when editing raw files on Vercel via the GitHub API.
+const GITHUB_PUBLIC_PATH = process.env.GITHUB_PUBLIC_PATH || 'public';
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const ADMIN_DIR = path.join(__dirname, 'admin');
@@ -378,6 +381,85 @@ function listPublicFiles(dir = PUBLIC_DIR, base = '') {
   return out;
 }
 
+// ---------------------------------------------------------------- GitHub raw-file helpers (for Vercel, read-only disk)
+
+function repoPathFor(relPath) {
+  const base = (GITHUB_PUBLIC_PATH || '').replace(/^\/+|\/+$/g, '');
+  const rel = String(relPath).replace(/^\/+/, '');
+  return base ? `${base}/${rel}` : rel;
+}
+
+function ghUrl(relPath, withRef) {
+  const encoded = repoPathFor(relPath).split('/').map(encodeURIComponent).join('/');
+  return `https://api.github.com/repos/${GITHUB_REPO}/contents/${encoded}${withRef ? `?ref=${encodeURIComponent(GITHUB_BRANCH)}` : ''}`;
+}
+
+async function readFileFromGitHub(relPath) {
+  if (!GITHUB_TOKEN) return null;
+  try {
+    const res = await fetch(ghUrl(relPath, true), {
+      headers: {
+        Authorization: `Bearer ${GITHUB_TOKEN}`,
+        Accept: 'application/vnd.github+json',
+        'User-Agent': 'deriv-app-admin',
+      },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const text = Buffer.from(data.content.replace(/\n/g, ''), 'base64').toString('utf8');
+    return { content: text, sha: data.sha, size: data.size };
+  } catch (err) {
+    console.error('GitHub file read error:', err.message);
+    return null;
+  }
+}
+
+async function writeFileToGitHub(relPath, content) {
+  if (!GITHUB_TOKEN) {
+    const err = new Error(
+      'Filesystem is read-only (Vercel). Set GITHUB_TOKEN env var so admin can save page files.'
+    );
+    err.code = 'NO_GITHUB_TOKEN';
+    throw err;
+  }
+  if (Buffer.byteLength(content, 'utf8') > 1024 * 1024) {
+    const err = new Error('File is larger than 1 MB — the GitHub Contents API limit. Keep pages under 1 MB.');
+    err.code = 'GITHUB_SIZE_LIMIT';
+    throw err;
+  }
+  const existing = await readFileFromGitHub(relPath);
+  if (!existing) {
+    const err = new Error(`File not found on GitHub: ${repoPathFor(relPath)}`);
+    err.code = 'FILE_NOT_FOUND';
+    throw err;
+  }
+  const payload = {
+    message: `Update ${relPath} via admin`,
+    content: Buffer.from(content, 'utf8').toString('base64'),
+    branch: GITHUB_BRANCH,
+  };
+  if (existing.sha) payload.sha = existing.sha;
+
+  const res = await fetch(ghUrl(relPath, false), {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${GITHUB_TOKEN}`,
+      Accept: 'application/vnd.github+json',
+      'Content-Type': 'application/json',
+      'User-Agent': 'deriv-app-admin',
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    console.error('GitHub file write failed:', res.status, t);
+    const err = new Error(`GitHub save failed (${res.status}): ${t}`);
+    err.code = 'GITHUB_WRITE_FAILED';
+    throw err;
+  }
+  return true;
+}
+
 // ---------------------------------------------------------------- routes
 
 app.get('/admin', (req, res) => {
@@ -480,30 +562,41 @@ app.get('/admin/api/files', requireAuth, (req, res) => {
   }
 });
 
-app.get('/admin/api/content', requireAuth, (req, res) => {
+app.get('/admin/api/content', requireAuth, async (req, res) => {
   const resolved = resolvePublicFile(req.query.file || 'index.html');
   if (!resolved.ok) return res.status(resolved.status).json({ error: resolved.error });
+
+  // On Vercel, prefer the GitHub copy (source of truth) so edits are visible
+  // even before the next redeploy; fall back to the deployed disk file.
+  if (IS_VERCEL && GITHUB_TOKEN) {
+    const gh = await readFileFromGitHub(resolved.rel);
+    if (gh) {
+      return res.json({
+        file: resolved.rel,
+        content: gh.content,
+        savedAt: new Date().toISOString(),
+        size: gh.size,
+        source: 'github',
+      });
+    }
+  }
+
   if (!fs.existsSync(resolved.abs) || !fs.statSync(resolved.abs).isFile()) {
     return res.status(404).json({ error: `File not found: ${resolved.rel}` });
   }
   try {
     const content = fs.readFileSync(resolved.abs, 'utf8');
     const stat = fs.statSync(resolved.abs);
-    res.json({ file: resolved.rel, content, savedAt: stat.mtime.toISOString(), size: stat.size });
+    res.json({ file: resolved.rel, content, savedAt: stat.mtime.toISOString(), size: stat.size, source: 'disk' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to read file' });
   }
 });
 
-app.post('/admin/api/content', requireAuth, (req, res) => {
+app.post('/admin/api/content', requireAuth, async (req, res) => {
   if (!sameOrigin(req)) {
     return res.status(403).json({ error: 'Cross-origin request rejected' });
-  }
-  if (IS_VERCEL) {
-    return res.status(501).json({
-      error: 'Raw file editing is not supported on Vercel (read-only disk). Use the Trade details form instead.',
-    });
   }
   const { content, file } = req.body || {};
   const resolved = resolvePublicFile(file || 'index.html');
@@ -514,6 +607,23 @@ app.post('/admin/api/content', requireAuth, (req, res) => {
   if (Buffer.byteLength(content, 'utf8') > MAX_BODY_BYTES) {
     return res.status(413).json({ error: 'Content too large (max 2 MB)' });
   }
+
+  // On Vercel the disk is read-only: commit the change straight to the repo
+  // via the GitHub Contents API (the site redeploys from the repo).
+  if (IS_VERCEL) {
+    try {
+      await writeFileToGitHub(resolved.rel, content);
+      return res.json({ ok: true, file: resolved.rel, savedAt: new Date().toISOString(), savedVia: 'github' });
+    } catch (err) {
+      console.error(err);
+      const msg =
+        err.code === 'NO_GITHUB_TOKEN'
+          ? err.message
+          : err.message || 'Failed to save file to GitHub';
+      return res.status(500).json({ error: msg });
+    }
+  }
+
   if (!fs.existsSync(resolved.abs)) {
     return res.status(404).json({ error: `File not found: ${resolved.rel}` });
   }
@@ -523,7 +633,7 @@ app.post('/admin/api/content', requireAuth, (req, res) => {
     console.error(err);
     return res.status(500).json({ error: 'Failed to save. Check filesystem permissions.' });
   }
-  res.json({ ok: true, file: resolved.rel, savedAt: new Date().toISOString() });
+  res.json({ ok: true, file: resolved.rel, savedAt: new Date().toISOString(), savedVia: 'disk' });
 });
 
 app.use('/admin', express.static(ADMIN_DIR));

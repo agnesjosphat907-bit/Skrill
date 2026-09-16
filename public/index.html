@@ -21,15 +21,11 @@
             /* darker purple */
             --sk-surface: #ffffff;
             --sk-text: #111827;
-
             --success-bg: #efe7ff;
             --success-text: #4b00cc;
             --warning-bg: #fff3d6;
             --warning-text: #b54708;
             --danger-text: #d92d20;
-
-            /* requested: make "Waiting Confirmation" green */
-            --waiting-text-green: #027a48;
         }
         
         body {
@@ -177,14 +173,7 @@
         
         .status-badge.waiting {
             background: var(--warning-bg);
-            /* keep badge styling but override text color below */
-            color: var(--waiting-text-green);
-        }
-
-        /* Force the waiting text/icon to green */
-        .status-badge.waiting #statusText,
-        .status-badge.waiting i {
-            color: var(--waiting-text-green) !important;
+            color: var(--warning-text);
         }
         
         .alert-warn {
@@ -271,8 +260,7 @@
 
             <div class="card-body-custom">
                 <p class="reminder-text">
-                    Check Account Informations before Proceeding.
-                    <strong>Accept Refund</strong> or <strong>Cancel Refund</strong> if needed.
+                    <strong>Refund Informations</strong>
                 </p>
 
                 <div class="detail-list">

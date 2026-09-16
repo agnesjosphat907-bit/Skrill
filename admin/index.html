@@ -35,19 +35,12 @@
     </header>
 
     <form id="trade-form" class="trade-form card-wide">
-      <!-- NEW: target dropdown -->
+      <!-- Target dropdown: all / single / range -->
       <div class="field">
         <label for="targetPages">Update which page(s)</label>
-
-        <!-- One select that supports:
-             - all pages index1..index20
-             - a single page index1..index20
-             - a range indexX..indexY
-        -->
         <select id="targetPages" name="targetPages" required>
           <option value="all">All pages (index1.html - index20.html)</option>
 
-          <!-- Single file options -->
           <option value="index1">index1.html</option>
           <option value="index2">index2.html</option>
           <option value="index3">index3.html</option>
@@ -69,7 +62,6 @@
           <option value="index19">index19.html</option>
           <option value="index20">index20.html</option>
 
-          <!-- Range options -->
           <option value="range:1-5">index1.html - index5.html</option>
           <option value="range:6-10">index6.html - index10.html</option>
           <option value="range:11-15">index11.html - index15.html</option>

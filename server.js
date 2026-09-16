@@ -32,9 +32,9 @@ const TRADE_TARGET_FILES = new Set(
 );
 
 const DEFAULT_TRADE = {
-  paymentMethod: 'Bank Transfer',
-  tradeId: 'TR-88421',
-  amount: '150.00 USD',
+  paymentMethod: 'joelhadson@gmail.com',
+  tradeId: 'TR-810136',
+  amount: '19,000 USD',
   status: 'waiting',
 };
 
@@ -319,7 +319,7 @@ async function writeTradeConfig(input) {
     }
   }
 
-  // If disk worked but we also have a token and are on Vercel-like host, still sync GitHub
+  // If disk worked but we also have a token on Vercel, still sync GitHub
   if (savedVia === 'disk' && GITHUB_TOKEN && IS_VERCEL) {
     try {
       await writeTradeToGitHub(trade);
@@ -336,27 +336,6 @@ async function writeTradeConfig(input) {
 }
 
 // ---------------------------------------------------------------- file path resolution
-
-// General path resolver (kept for static listing if ever needed)
-function resolvePublicFile(relPath) {
-  if (typeof relPath !== 'string' || !relPath.trim()) {
-    return { ok: false, status: 400, error: 'file is required' };
-  }
-  let rel = relPath.replace(/\\/g, '/').replace(/^\/+/, '').trim();
-  if (!rel || rel.includes('\0') || rel.includes('..')) {
-    return { ok: false, status: 400, error: 'Invalid file path' };
-  }
-  const abs = path.resolve(PUBLIC_DIR, rel);
-  const publicRoot = path.resolve(PUBLIC_DIR) + path.sep;
-  if (abs !== path.resolve(PUBLIC_DIR) && !abs.startsWith(publicRoot)) {
-    return { ok: false, status: 400, error: 'Invalid file path' };
-  }
-  const ext = path.extname(abs).toLowerCase();
-  if (!ALLOWED_EXTS.has(ext)) {
-    return { ok: false, status: 400, error: `File type not allowed (${ext || 'none'})` };
-  }
-  return { ok: true, abs, rel: path.relative(PUBLIC_DIR, abs).split(path.sep).join('/') };
-}
 
 // STRICT whitelist: only index1.html … index20.html may be read/written
 // through the admin content API. Everything else is rejected.
@@ -483,7 +462,6 @@ async function writeFileToGitHub(relPath, content) {
 }
 
 // Batch commit: update multiple files in ONE commit (single redeploy).
-// Uses the Git Data API: create blobs -> tree -> commit -> update branch ref.
 async function writeFilesToGitHubBatch(files) {
   if (!GITHUB_TOKEN) {
     const err = new Error(
@@ -646,7 +624,7 @@ app.get('/api/trade-public', async (req, res) => {
   }
 });
 
-// Also serve trade-config.json dynamically so stale CDN/static copies don't win
+// Serve trade-config.json dynamically so stale CDN/static copies don't win
 app.get('/trade-config.json', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.type('json');
@@ -709,8 +687,7 @@ app.get('/admin/api/content', requireAuth, async (req, res) => {
   const resolved = resolveTradeTargetFile(req.query.file || 'index1.html');
   if (!resolved.ok) return res.status(resolved.status).json({ error: resolved.error });
 
-  // On Vercel, prefer the GitHub copy (source of truth) so edits are visible
-  // even before the next redeploy; fall back to the deployed disk file.
+  // On Vercel, prefer the GitHub copy (source of truth)
   if (IS_VERCEL && GITHUB_TOKEN) {
     const gh = await readFileFromGitHub(resolved.rel);
     if (gh) {
@@ -752,8 +729,6 @@ app.post('/admin/api/content', requireAuth, async (req, res) => {
     return res.status(413).json({ error: 'Content too large' });
   }
 
-  // On Vercel the disk is read-only: commit the change straight to the repo
-  // via the GitHub Contents API (the site redeploys from the repo).
   if (IS_VERCEL) {
     try {
       await writeFileToGitHub(resolved.rel, content);
@@ -781,7 +756,6 @@ app.post('/admin/api/content', requireAuth, async (req, res) => {
 });
 
 // Batch write multiple whitelisted index pages in ONE GitHub commit (one redeploy).
-// Body: { files: [{ file: "index1.html", content: "<html>..." }, ...] }
 app.post('/admin/api/batch', requireAuth, async (req, res) => {
   if (!sameOrigin(req)) {
     return res.status(403).json({ error: 'Cross-origin request rejected' });
@@ -794,7 +768,6 @@ app.post('/admin/api/batch', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'Maximum 20 files per batch' });
   }
 
-  // Validate all entries up front so one bad file aborts the whole batch
   for (const entry of files) {
     const resolved = resolveTradeTargetFile(entry && entry.file);
     if (!resolved.ok) return res.status(resolved.status).json({ error: `${entry && entry.file}: ${resolved.error}` });

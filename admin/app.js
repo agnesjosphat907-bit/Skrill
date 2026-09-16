@@ -111,38 +111,22 @@ function applyTradeToHtml(html, trade) {
     { key: 'data-status', value: st },
   ];
 
-  let didReplaceAny = false;
   let out = html;
 
   for (const p of patterns) {
     const re = new RegExp(`(${p.key}\\s*=\\s*")([^"]*)(")`, 'g');
-    if (re.test(out)) {
-      out = out.replace(re, `$1${p.value}$3`);
-      didReplaceAny = true;
-    }
+    out = out.replace(re, `$1${p.value}$3`);
   }
 
-  if (!didReplaceAny) {
-    const fallbackMap = [
-      { id: 'paymentMethod', value: pm },
-      { id: 'tradeId', value: tid },
-      { id: 'amount', value: amt },
-      { id: 'status', value: st },
-    ];
-    let fallbackDid = false;
-    for (const f of fallbackMap) {
-      const idRe = new RegExp(`(<[^>]+id=["']${f.id}["'][^>]*>)([\\s\\S]*?)(</[^>]+>)`, 'g');
-      if (idRe.test(out)) {
-        out = out.replace(idRe, `$1${f.value}$3`);
-        fallbackDid = true;
-      }
-    }
-    if (!fallbackDid) {
-      throw new Error(
-        'No trade markers found in this page. ' +
-        'Add data-payment-method / data-trade-id / data-amount / data-status attributes (or ids).'
-      );
-    }
+  // Replace the hardcoded fallback values used by the inline page scripts
+  const fallbackPairs = [
+    { find: `tradeId: "TR-810136"`, replace: `tradeId: "${tid}"` },
+    { find: `amount: "19,000 USD"`, replace: `amount: "${amt}"` },
+    { find: `paymentMethod: "joelhadson@gmail.com"`, replace: `paymentMethod: "${pm}"` },
+    { find: `status: "waiting",`, replace: `status: "${st}",` },
+  ];
+  for (const f of fallbackPairs) {
+    out = out.split(f.find).join(f.replace);
   }
 
   return out;
@@ -193,7 +177,7 @@ loginForm.addEventListener('submit', async (e) => {
   }
 });
 
-// ================= save (batch) =================
+// ================= save =================
 
 tradeForm.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -212,7 +196,14 @@ tradeForm.addEventListener('submit', async (e) => {
   try {
     const targets = resolveTargetFiles();
 
-    // Fetch each target page's current content in parallel
+    // 1. Update trade-config.json FIRST (instant live values for all pages
+    //    that fetch the config)
+    await api('/admin/api/trade', {
+      method: 'POST',
+      body: JSON.stringify(trade),
+    });
+
+    // 2. Then rewrite the selected HTML pages (baked-in values)
     const contents = await Promise.all(
       targets.map(async (file) => {
         const data = await api(`/admin/api/content?file=${encodeURIComponent(file)}`);
@@ -220,14 +211,14 @@ tradeForm.addEventListener('submit', async (e) => {
       })
     );
 
-    // Save all in ONE request (single GitHub commit on Vercel)
+    // Save all pages in ONE request (single GitHub commit on Vercel)
     const result = await api('/admin/api/batch', {
       method: 'POST',
       body: JSON.stringify({ files: contents }),
     });
 
     dirty = false;
-    saveStatus.textContent = `Saved ${result.saved.length} file(s) via ${result.savedVia || 'unknown'}`;
+    saveStatus.textContent = `Saved config + ${result.saved.length} page(s) via ${result.savedVia || 'unknown'}`;
     lastSaved.textContent = `Last saved: ${new Date(result.savedAt || Date.now()).toLocaleString()}`;
   } catch (err) {
     showError(saveError, err.message);

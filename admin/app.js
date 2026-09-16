@@ -22,6 +22,20 @@ const pvStatus = document.getElementById('pv-status');
 
 let dirty = false;
 
+// ---------------- file editor elements ----------------
+const fileSelect = document.getElementById('file-select');
+const fileRefreshBtn = document.getElementById('file-refresh-btn');
+const fileOpenLink = document.getElementById('file-open-link');
+const fileMeta = document.getElementById('file-meta');
+const fileEditor = document.getElementById('file-editor');
+const fileSaveBtn = document.getElementById('file-save-btn');
+const fileReloadBtn = document.getElementById('file-reload-btn');
+const fileStatus = document.getElementById('file-status');
+const fileError = document.getElementById('file-error');
+
+let currentFile = '';
+let fileDirty = false;
+
 async function api(path, options = {}) {
   const res = await fetch(path, {
     credentials: 'same-origin',
@@ -91,6 +105,11 @@ async function showEditor() {
   fillForm(data.trade || {});
   if (data.savedAt) {
     lastSaved.textContent = `Last saved: ${new Date(data.savedAt).toLocaleString()}`;
+  }
+  try {
+    await loadFileList();
+  } catch (err) {
+    showError(fileError, `File list failed: ${err.message}`);
   }
 }
 
@@ -173,10 +192,149 @@ logoutBtn.addEventListener('click', async () => {
 });
 
 window.addEventListener('beforeunload', (e) => {
-  if (dirty) {
+  if (dirty || fileDirty) {
     e.preventDefault();
     e.returnValue = '';
   }
 });
+
+// ================= file editor =================
+
+function fileBytes() {
+  try {
+    return new TextEncoder().encode(fileEditor.value).length;
+  } catch {
+    return fileEditor.value.length;
+  }
+}
+
+function updateFileStatus() {
+  const bytes = fileBytes();
+  let msg = `${bytes.toLocaleString()} bytes / 2 MB max`;
+  if (fileDirty) msg += ' · unsaved changes';
+  fileStatus.textContent = msg;
+  fileStatus.classList.remove('ok');
+}
+
+async function loadFileList(preferred) {
+  clearError(fileError);
+  const data = await api('/admin/api/files');
+  const files = data.files || [];
+
+  const htmlFiles = files.filter((f) => /\.html?$/i.test(f.path));
+  const otherFiles = files.filter((f) => !/\.html?$/i.test(f.path));
+
+  fileSelect.innerHTML = '';
+  const addGroup = (label, list) => {
+    if (!list.length) return;
+    const og = document.createElement('optgroup');
+    og.label = label;
+    for (const f of list) {
+      const opt = document.createElement('option');
+      opt.value = f.path;
+      opt.textContent = f.path;
+      og.appendChild(opt);
+    }
+    fileSelect.appendChild(og);
+  };
+  addGroup('HTML pages', htmlFiles);
+  addGroup('Other editable files', otherFiles);
+
+  if (!fileSelect.options.length) {
+    fileMeta.textContent = 'No editable files found in /public';
+    fileEditor.value = '';
+    fileEditor.disabled = true;
+    fileSaveBtn.disabled = true;
+    fileOpenLink.style.display = 'none';
+    updateFileStatus();
+    return;
+  }
+
+  let target = preferred || currentFile;
+  if (target && Array.from(fileSelect.options).some((o) => o.value === target)) {
+    fileSelect.value = target;
+  } else {
+    fileSelect.selectedIndex = 0;
+    target = fileSelect.value;
+  }
+
+  fileEditor.disabled = false;
+  await loadFile(target);
+}
+
+async function loadFile(filePath) {
+  clearError(fileError);
+  fileStatus.textContent = 'Loading…';
+  fileSaveBtn.disabled = true;
+  try {
+    const data = await api(`/admin/api/content?file=${encodeURIComponent(filePath)}`);
+    currentFile = data.file;
+    fileEditor.value = data.content;
+    fileMeta.textContent =
+      `${data.file} · ${Number(data.size || 0).toLocaleString()} bytes · last saved ` +
+      new Date(data.savedAt).toLocaleString() +
+      (data.source ? ` · source: ${data.source}` : '');
+    fileOpenLink.href = `/${encodeURIComponent(currentFile)}`;
+    fileOpenLink.style.display = 'inline-block';
+    fileDirty = false;
+    updateFileStatus();
+    fileStatus.classList.add('ok');
+    fileStatus.textContent = `Loaded ${currentFile}`;
+  } catch (err) {
+    showError(fileError, err.message);
+    fileMeta.textContent = filePath;
+    updateFileStatus();
+  } finally {
+    fileSaveBtn.disabled = false;
+  }
+}
+
+fileSelect.addEventListener('change', async () => {
+  if (fileDirty && !confirm('You have unsaved changes in the current file. Discard them and open another file?')) {
+    fileSelect.value = currentFile;
+    return;
+  }
+  await loadFile(fileSelect.value);
+});
+
+fileEditor.addEventListener('input', () => {
+  fileDirty = true;
+  updateFileStatus();
+});
+
+fileSaveBtn.addEventListener('click', async () => {
+  clearError(fileError);
+  fileSaveBtn.disabled = true;
+  const originalText = fileSaveBtn.textContent;
+  fileSaveBtn.textContent = 'Saving…';
+  try {
+    const data = await api('/admin/api/content', {
+      method: 'POST',
+      body: JSON.stringify({ file: currentFile, content: fileEditor.value }),
+    });
+    fileDirty = false;
+    fileStatus.classList.add('ok');
+    fileStatus.textContent = `Saved ${data.file} at ${new Date(data.savedAt).toLocaleTimeString()}` +
+      (data.savedVia ? ` (${data.savedVia})` : '');
+    if (data.savedVia === 'github') {
+      fileStatus.textContent += ' — commit pushed; site redeploys from the repo';
+    }
+    fileMeta.textContent = `${data.file} · updated ${new Date(data.savedAt).toLocaleString()}`;
+  } catch (err) {
+    showError(fileError, err.message);
+    fileStatus.textContent = '';
+  } finally {
+    fileSaveBtn.disabled = false;
+    fileSaveBtn.textContent = originalText;
+    updateFileStatus();
+  }
+});
+
+fileReloadBtn.addEventListener('click', () => {
+  if (fileDirty && !confirm('Discard unsaved changes and reload this file from the server?')) return;
+  loadFile(currentFile);
+});
+
+fileRefreshBtn.addEventListener('click', () => loadFileList(currentFile));
 
 init();

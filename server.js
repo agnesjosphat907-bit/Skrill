@@ -262,8 +262,6 @@ function writeTradeToDisk(trade) {
 async function readTradeConfig() {
   if (tradeCache) return { trade: tradeCache, savedAt: tradeCacheSavedAt };
 
-  // On Vercel with a token, GitHub is the source of truth: the deployed
-  // disk copy can be stale between an admin save and the next redeploy.
   if (IS_VERCEL && GITHUB_TOKEN) {
     const gh = await readTradeFromGitHub();
     if (gh && gh.trade) {
@@ -297,7 +295,6 @@ async function writeTradeConfig(input) {
   let savedVia = 'memory';
   let warn = '';
 
-  // Prefer local disk when writable (local / VPS)
   try {
     writeTradeToDisk(trade);
     savedVia = 'disk';
@@ -319,7 +316,6 @@ async function writeTradeConfig(input) {
     }
   }
 
-  // If disk worked but we also have a token on Vercel, still sync GitHub
   if (savedVia === 'disk' && GITHUB_TOKEN && IS_VERCEL) {
     try {
       await writeTradeToGitHub(trade);
@@ -612,7 +608,7 @@ app.post('/admin/api/logout', (req, res) => {
   res.json({ ok: true });
 });
 
-// Public trade values (no auth)
+// Public trade values (no auth) — used by index.html / other pages that fetch config
 app.get('/api/trade-public', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   try {
@@ -624,7 +620,7 @@ app.get('/api/trade-public', async (req, res) => {
   }
 });
 
-// Serve trade-config.json dynamically so stale CDN/static copies don't win
+// Serve trade-config.json dynamically
 app.get('/trade-config.json', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.type('json');
@@ -687,7 +683,6 @@ app.get('/admin/api/content', requireAuth, async (req, res) => {
   const resolved = resolveTradeTargetFile(req.query.file || 'index1.html');
   if (!resolved.ok) return res.status(resolved.status).json({ error: resolved.error });
 
-  // On Vercel, prefer the GitHub copy (source of truth)
   if (IS_VERCEL && GITHUB_TOKEN) {
     const gh = await readFileFromGitHub(resolved.rel);
     if (gh) {

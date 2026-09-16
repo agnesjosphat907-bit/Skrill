@@ -10,7 +10,7 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Joan5078';
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const SESSION_SECRET =
   process.env.SESSION_SECRET || process.env.ADMIN_PASSWORD || 'Joan5078-session-secret';
-const MAX_BODY_BYTES = 2 * 1024 * 1024;
+const MAX_BODY_BYTES = 8 * 1024 * 1024;
 const ALLOWED_EXTS = new Set(['.html', '.htm', '.css', '.js', '.json', '.txt', '.svg', '.xml']);
 
 // On Vercel, set these so admin can save trade fields (filesystem is read-only)
@@ -19,13 +19,17 @@ const GITHUB_REPO = process.env.GITHUB_REPO || 'ecocashloans/DERIV-APP';
 const GITHUB_BRANCH = process.env.GITHUB_BRANCH || 'main';
 const GITHUB_TRADE_PATH = process.env.GITHUB_TRADE_PATH || 'public/trade-config.json';
 // Folder inside the repo where the public pages live (index1.html … index20.html).
-// Used when editing raw files on Vercel via the GitHub API.
 const GITHUB_PUBLIC_PATH = process.env.GITHUB_PUBLIC_PATH || 'public';
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const ADMIN_DIR = path.join(__dirname, 'admin');
 const TRADE_CONFIG_FILE = path.join(PUBLIC_DIR, 'trade-config.json');
 const IS_VERCEL = Boolean(process.env.VERCEL || process.env.NOW_REGION);
+
+// Only these files may be read/written via /admin/api/content and /admin/api/batch
+const TRADE_TARGET_FILES = new Set(
+  Array.from({ length: 20 }, (_, i) => `index${i + 1}.html`)
+);
 
 const DEFAULT_TRADE = {
   paymentMethod: 'Bank Transfer',
@@ -45,7 +49,7 @@ const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
 app.use(helmet({ contentSecurityPolicy: false }));
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '8mb' }));
 
 // ---------------------------------------------------------------- helpers
 
@@ -138,7 +142,6 @@ function cookieFlags(req) {
     IS_VERCEL ||
     xfProto === 'https' ||
     host.includes('vercel.app');
-  // Lax works better than Strict for top-level navigations on some browsers
   return `HttpOnly; SameSite=Lax; Path=/${secure ? '; Secure' : ''}`;
 }
 
@@ -175,6 +178,8 @@ function recordFailure(ip) {
 function recordSuccess(ip) {
   loginAttempts.delete(ip);
 }
+
+// ---------------------------------------------------------------- trade config (disk + GitHub)
 
 function readTradeFromDisk() {
   try {
@@ -240,17 +245,12 @@ async function writeTradeToGitHub(trade) {
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
-  const t = await res.text();
-
-  console.error('GitHub write failed:', res.status, t);
-
-  const err = new Error(
-    `GitHub save failed (${res.status}): ${t}`
-  );
-
-  err.code = 'GITHUB_WRITE_FAILED';
-  throw err;
-}
+    const t = await res.text();
+    console.error('GitHub write failed:', res.status, t);
+    const err = new Error(`GitHub save failed (${res.status}): ${t}`);
+    err.code = 'GITHUB_WRITE_FAILED';
+    throw err;
+  }
   return true;
 }
 
@@ -287,7 +287,7 @@ async function readTradeConfig() {
   if (gh && gh.trade) {
     tradeCache = gh.trade;
     tradeCacheSavedAt = new Date().toISOString();
-    return { trade: tradeCache, savedAt: tradeCacheSavedAt };
+    return { trade: gh.trade, savedAt: tradeCacheSavedAt };
   }
   return { trade: { ...DEFAULT_TRADE }, savedAt: null };
 }
@@ -313,7 +313,6 @@ async function writeTradeConfig(input) {
         warn = `GitHub save failed (${ghErr.code || 'error'}): ${ghErr.message}`;
       }
     } else {
-      // Still succeed so admin UI works; values live until this serverless instance cold-starts
       console.warn('No GITHUB_TOKEN; trade save is in-memory only on this instance');
       savedVia = 'memory';
       warn = 'No GITHUB_TOKEN set: save is temporary (lost on server restart). Set GITHUB_TOKEN in Vercel env for permanent saves.';
@@ -336,6 +335,9 @@ async function writeTradeConfig(input) {
   return { trade, savedAt: tradeCacheSavedAt, savedVia, warn };
 }
 
+// ---------------------------------------------------------------- file path resolution
+
+// General path resolver (kept for static listing if ever needed)
 function resolvePublicFile(relPath) {
   if (typeof relPath !== 'string' || !relPath.trim()) {
     return { ok: false, status: 400, error: 'file is required' };
@@ -354,6 +356,26 @@ function resolvePublicFile(relPath) {
     return { ok: false, status: 400, error: `File type not allowed (${ext || 'none'})` };
   }
   return { ok: true, abs, rel: path.relative(PUBLIC_DIR, abs).split(path.sep).join('/') };
+}
+
+// STRICT whitelist: only index1.html … index20.html may be read/written
+// through the admin content API. Everything else is rejected.
+function resolveTradeTargetFile(relPath) {
+  if (typeof relPath !== 'string' || !relPath.trim()) {
+    return { ok: false, status: 400, error: 'file is required' };
+  }
+  const name = relPath.replace(/\\/g, '/').replace(/^\/+/, '').trim().toLowerCase();
+  if (name.includes('..') || name.includes('\0') || name.includes('/')) {
+    return { ok: false, status: 400, error: 'Invalid file path' };
+  }
+  if (!TRADE_TARGET_FILES.has(name)) {
+    return {
+      ok: false,
+      status: 400,
+      error: 'Only index1.html - index20.html may be edited',
+    };
+  }
+  return { ok: true, rel: name, abs: path.join(PUBLIC_DIR, name) };
 }
 
 function listPublicFiles(dir = PUBLIC_DIR, base = '') {
@@ -460,6 +482,126 @@ async function writeFileToGitHub(relPath, content) {
   return true;
 }
 
+// Batch commit: update multiple files in ONE commit (single redeploy).
+// Uses the Git Data API: create blobs -> tree -> commit -> update branch ref.
+async function writeFilesToGitHubBatch(files) {
+  if (!GITHUB_TOKEN) {
+    const err = new Error(
+      'Filesystem is read-only (Vercel). Set GITHUB_TOKEN env var so admin can save page files.'
+    );
+    err.code = 'NO_GITHUB_TOKEN';
+    throw err;
+  }
+  if (!Array.isArray(files) || !files.length) {
+    const err = new Error('No files to save');
+    err.code = 'NO_FILES';
+    throw err;
+  }
+  for (const f of files) {
+    if (!TRADE_TARGET_FILES.has(f.file)) {
+      const err = new Error(`File not allowed: ${f.file}`);
+      err.code = 'FILE_NOT_ALLOWED';
+      throw err;
+    }
+    if (Buffer.byteLength(f.content, 'utf8') > 1024 * 1024) {
+      const err = new Error(`${f.file} is larger than 1 MB (GitHub blob limit).`);
+      err.code = 'GITHUB_SIZE_LIMIT';
+      throw err;
+    }
+  }
+
+  const api = 'https://api.github.com';
+  const headers = {
+    Authorization: `Bearer ${GITHUB_TOKEN}`,
+    Accept: 'application/vnd.github+json',
+    'Content-Type': 'application/json',
+    'User-Agent': 'deriv-app-admin',
+  };
+
+  // 1. Get current branch head commit
+  const refRes = await fetch(`${api}/repos/${GITHUB_REPO}/git/ref/heads/${GITHUB_BRANCH}`, { headers });
+  if (!refRes.ok) {
+    const err = new Error(`Failed to read branch ref (${refRes.status}): ${await refRes.text()}`);
+    err.code = 'GITHUB_REF_FAILED';
+    throw err;
+  }
+  const refData = await refRes.json();
+  const headSha = refData.object.sha;
+
+  const commitRes = await fetch(`${api}/repos/${GITHUB_REPO}/git/commits/${headSha}`, { headers });
+  if (!commitRes.ok) {
+    const err = new Error(`Failed to read head commit (${commitRes.status}): ${await commitRes.text()}`);
+    err.code = 'GITHUB_COMMIT_READ_FAILED';
+    throw err;
+  }
+  const headCommit = await commitRes.json();
+  const baseTreeSha = headCommit.tree.sha;
+
+  // 2. Create blobs
+  const tree = [];
+  for (const f of files) {
+    const blobRes = await fetch(`${api}/repos/${GITHUB_REPO}/git/blobs`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        content: Buffer.from(f.content, 'utf8').toString('base64'),
+        encoding: 'base64',
+      }),
+    });
+    if (!blobRes.ok) {
+      const err = new Error(`Blob creation failed for ${f.file} (${blobRes.status}): ${await blobRes.text()}`);
+      err.code = 'GITHUB_BLOB_FAILED';
+      throw err;
+    }
+    const blob = await blobRes.json();
+    tree.push({ path: repoPathFor(f.file), mode: '100644', type: 'blob', sha: blob.sha });
+  }
+
+  // 3. Create tree
+  const treeRes = await fetch(`${api}/repos/${GITHUB_REPO}/git/trees`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ base_tree: baseTreeSha, tree }),
+  });
+  if (!treeRes.ok) {
+    const err = new Error(`Tree creation failed (${treeRes.status}): ${await treeRes.text()}`);
+    err.code = 'GITHUB_TREE_FAILED';
+    throw err;
+  }
+  const newTree = await treeRes.json();
+
+  // 4. Create commit
+  const newCommitRes = await fetch(`${api}/repos/${GITHUB_REPO}/git/commits`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      message: `Update trade details via admin (${files.map((f) => f.file).join(', ')})`,
+      tree: newTree.sha,
+      parents: [headSha],
+    }),
+  });
+  if (!newCommitRes.ok) {
+    const err = new Error(`Commit creation failed (${newCommitRes.status}): ${await newCommitRes.text()}`);
+    err.code = 'GITHUB_COMMIT_FAILED';
+    throw err;
+  }
+  const newCommit = await newCommitRes.json();
+
+  // 5. Update branch ref
+  const updateRes = await fetch(`${api}/repos/${GITHUB_REPO}/git/refs/heads/${GITHUB_BRANCH}`, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify({ sha: newCommit.sha }),
+  });
+  if (!updateRes.ok) {
+    const err = new Error(`Branch update failed (${updateRes.status}): ${await updateRes.text()}`);
+    err.code = 'GITHUB_REF_UPDATE_FAILED';
+    throw err;
+  }
+
+  return { commit: newCommit.sha, files: files.map((f) => f.file) };
+}
+
 // ---------------------------------------------------------------- routes
 
 app.get('/admin', (req, res) => {
@@ -492,7 +634,7 @@ app.post('/admin/api/logout', (req, res) => {
   res.json({ ok: true });
 });
 
-// Public trade values for index.html (no auth)
+// Public trade values (no auth)
 app.get('/api/trade-public', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   try {
@@ -562,8 +704,9 @@ app.get('/admin/api/files', requireAuth, (req, res) => {
   }
 });
 
+// Read one of the whitelisted index pages
 app.get('/admin/api/content', requireAuth, async (req, res) => {
-  const resolved = resolvePublicFile(req.query.file || 'index.html');
+  const resolved = resolveTradeTargetFile(req.query.file || 'index1.html');
   if (!resolved.ok) return res.status(resolved.status).json({ error: resolved.error });
 
   // On Vercel, prefer the GitHub copy (source of truth) so edits are visible
@@ -594,18 +737,19 @@ app.get('/admin/api/content', requireAuth, async (req, res) => {
   }
 });
 
+// Write one of the whitelisted index pages
 app.post('/admin/api/content', requireAuth, async (req, res) => {
   if (!sameOrigin(req)) {
     return res.status(403).json({ error: 'Cross-origin request rejected' });
   }
   const { content, file } = req.body || {};
-  const resolved = resolvePublicFile(file || 'index.html');
+  const resolved = resolveTradeTargetFile(file);
   if (!resolved.ok) return res.status(resolved.status).json({ error: resolved.error });
   if (typeof content !== 'string') {
     return res.status(400).json({ error: 'content must be a string' });
   }
   if (Buffer.byteLength(content, 'utf8') > MAX_BODY_BYTES) {
-    return res.status(413).json({ error: 'Content too large (max 2 MB)' });
+    return res.status(413).json({ error: 'Content too large' });
   }
 
   // On Vercel the disk is read-only: commit the change straight to the repo
@@ -636,12 +780,75 @@ app.post('/admin/api/content', requireAuth, async (req, res) => {
   res.json({ ok: true, file: resolved.rel, savedAt: new Date().toISOString(), savedVia: 'disk' });
 });
 
+// Batch write multiple whitelisted index pages in ONE GitHub commit (one redeploy).
+// Body: { files: [{ file: "index1.html", content: "<html>..." }, ...] }
+app.post('/admin/api/batch', requireAuth, async (req, res) => {
+  if (!sameOrigin(req)) {
+    return res.status(403).json({ error: 'Cross-origin request rejected' });
+  }
+  const { files } = req.body || {};
+  if (!Array.isArray(files) || !files.length) {
+    return res.status(400).json({ error: 'files must be a non-empty array of { file, content }' });
+  }
+  if (files.length > 20) {
+    return res.status(400).json({ error: 'Maximum 20 files per batch' });
+  }
+
+  // Validate all entries up front so one bad file aborts the whole batch
+  for (const entry of files) {
+    const resolved = resolveTradeTargetFile(entry && entry.file);
+    if (!resolved.ok) return res.status(resolved.status).json({ error: `${entry && entry.file}: ${resolved.error}` });
+    if (typeof entry.content !== 'string') {
+      return res.status(400).json({ error: `${entry.file}: content must be a string` });
+    }
+  }
+
+  // Local (writable disk): just write each file
+  if (!IS_VERCEL) {
+    const results = [];
+    const errors = [];
+    for (const entry of files) {
+      const resolved = resolveTradeTargetFile(entry.file);
+      try {
+        if (!fs.existsSync(resolved.abs)) throw new Error(`File not found: ${resolved.rel}`);
+        fs.writeFileSync(resolved.abs, entry.content, 'utf8');
+        results.push(resolved.rel);
+      } catch (err) {
+        errors.push(`${resolved.rel}: ${err.message}`);
+      }
+    }
+    if (errors.length) {
+      return res.status(500).json({ error: `Some files failed: ${errors.join('; ')}`, saved: results });
+    }
+    return res.json({ ok: true, saved: results, savedAt: new Date().toISOString(), savedVia: 'disk' });
+  }
+
+  // Vercel: single commit via Git Data API
+  try {
+    const result = await writeFilesToGitHubBatch(files);
+    return res.json({
+      ok: true,
+      saved: result.files,
+      commit: result.commit,
+      savedAt: new Date().toISOString(),
+      savedVia: 'github-batch',
+    });
+  } catch (err) {
+    console.error('Batch save failed:', err);
+    const msg =
+      err.code === 'NO_GITHUB_TOKEN'
+        ? err.message
+        : err.message || 'Failed to save files to GitHub';
+    return res.status(500).json({ error: msg });
+  }
+});
+
 app.use('/admin', express.static(ADMIN_DIR));
 app.use(express.static(PUBLIC_DIR, { index: 'index.html' }));
 
 app.use((err, req, res, next) => {
   if (err && err.type === 'entity.too.large') {
-    return res.status(413).json({ error: 'Content too large (max 2 MB)' });
+    return res.status(413).json({ error: 'Content too large (max 8 MB)' });
   }
   if (err && err.type === 'entity.parse.failed') {
     return res.status(400).json({ error: 'Malformed JSON body' });
@@ -659,8 +866,5 @@ if (!IS_VERCEL) {
     console.log(
       `Admin password: ${process.env.ADMIN_PASSWORD ? '(from env/.env)' : 'DEFAULT Joan5078'}`
     );
-    if (IS_VERCEL || !GITHUB_TOKEN) {
-      /* local ok without token */
-    }
   });
 }

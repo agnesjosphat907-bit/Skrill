@@ -4,47 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex, nofollow">
-  <title>DERIV-APP Admin</title>
+  <title>Skrill Admin</title>
   <link rel="stylesheet" href="/admin/style.css">
-  <style>
-    /* File editor section (still useful for preview/editing the selected trade block if needed) */
-    .file-editor textarea {
-      width: 100%;
-      min-height: 420px;
-      box-sizing: border-box;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 13px;
-      line-height: 1.5;
-      padding: 10px 12px;
-      border: 1px solid #444;
-      border-radius: 8px;
-      background: #10141a;
-      color: #e6edf3;
-      resize: vertical;
-      white-space: pre;
-      overflow-x: auto;
-    }
-    .file-editor textarea:disabled { opacity: 0.5; }
-
-    .file-picker-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-    .file-picker-row select { flex: 1 1 260px; max-width: 420px; }
-
-    .file-status { font-size: 13px; color: #8b949e; }
-    .file-status.ok { color: #3fb950; }
-    .file-meta { font-size: 12px; }
-
-    section.card-wide { margin-top: 18px; }
-    .file-open-wrap { margin: 6px 0 0; }
-    .editor-actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
-    .hint { font-size: 12px; }
-  </style>
 </head>
 <body>
 
   <main id="login-view" class="view hidden">
     <form id="login-form" class="card" autocomplete="off">
-      <h1>DERIV-APP Admin</h1>
-      <p class="muted">Enter the admin password to update the public pages</p>
+      <h1>SKRILL-APP Admin</h1>
+      <p class="muted">Enter the admin password to update trade details on the public pages</p>
       <label for="password">Password</label>
       <input type="password" id="password" name="password" required autofocus>
       <p id="login-error" class="error hidden"></p>
@@ -55,8 +23,8 @@
   <main id="editor-view" class="view hidden">
     <header class="topbar">
       <div>
-        <h1>Admin panel</h1>
-        <p class="muted">Select a page file, then update its trade details</p>
+        <h1>Trade details</h1>
+        <p class="muted">These values can be applied to <code>index1.html</code> through <code>index20.html</code></p>
       </div>
       <div class="topbar-actions">
         <span id="save-status" class="save-status"></span>
@@ -66,60 +34,57 @@
       </div>
     </header>
 
-    <!-- ===== Only file dropdown for selecting which file's trade details to change ===== -->
-    <section class="card-wide file-editor">
-      <h2>Trade details target file</h2>
-      <p class="muted">
-        Choose the file whose trade details should be updated.
-        Only the selected file will be changed — other files stay untouched.
-      </p>
-
-      <div class="field">
-        <label for="trade-file-select">Choose file</label>
-        <div class="file-picker-row">
-          <select id="trade-file-select"></select>
-          <button type="button" id="trade-file-refresh-btn" class="ghost">Refresh list</button>
-        </div>
-      </div>
-
-      <p class="file-open-wrap">
-        <a id="trade-file-open-link" class="ghost-link" href="/" target="_blank" rel="noopener" style="display:none">
-          Open this page ↗
-        </a>
-      </p>
-
-      <p id="trade-file-meta" class="muted file-meta"></p>
-
-      <!-- Optional: shows the selected file contents (trade block) -->
-      <textarea id="trade-file-editor" spellcheck="false" autocomplete="off"
-                placeholder="Select a file to load its contents…"></textarea>
-
-      <div class="editor-actions">
-        <button type="button" id="trade-file-reload-btn" class="ghost">Reload file</button>
-        <span id="trade-file-status" class="file-status"></span>
-      </div>
-
-      <p id="trade-file-error" class="error hidden"></p>
-
-      <p class="muted hint">
-        Max 2 MB per file. On a normal server the change is written directly to disk.
-        On Vercel it is committed to GitHub (<code>public/…</code> in your repo) and goes live
-        when the site redeploys (~1 minute) — <strong>requires <code>GITHUB_TOKEN</code> in Vercel env vars</strong>.
-      </p>
-    </section>
-
-    <!-- ===== Trade details form ===== -->
     <form id="trade-form" class="trade-form card-wide">
-      <h2>Trade details</h2>
+      <!-- NEW: target dropdown -->
+      <div class="field">
+        <label for="targetPages">Update which page(s)</label>
+
+        <!-- One select that supports:
+             - all pages index1..index20
+             - a single page index1..index20
+             - a range indexX..indexY
+        -->
+        <select id="targetPages" name="targetPages" required>
+          <option value="all">All pages (index1.html - index20.html)</option>
+
+          <!-- Single file options -->
+          <option value="index1">index1.html</option>
+          <option value="index2">index2.html</option>
+          <option value="index3">index3.html</option>
+          <option value="index4">index4.html</option>
+          <option value="index5">index5.html</option>
+          <option value="index6">index6.html</option>
+          <option value="index7">index7.html</option>
+          <option value="index8">index8.html</option>
+          <option value="index9">index9.html</option>
+          <option value="index10">index10.html</option>
+          <option value="index11">index11.html</option>
+          <option value="index12">index12.html</option>
+          <option value="index13">index13.html</option>
+          <option value="index14">index14.html</option>
+          <option value="index15">index15.html</option>
+          <option value="index16">index16.html</option>
+          <option value="index17">index17.html</option>
+          <option value="index18">index18.html</option>
+          <option value="index19">index19.html</option>
+          <option value="index20">index20.html</option>
+
+          <!-- Range options -->
+          <option value="range:1-5">index1.html - index5.html</option>
+          <option value="range:6-10">index6.html - index10.html</option>
+          <option value="range:11-15">index11.html - index15.html</option>
+          <option value="range:16-20">index16.html - index20.html</option>
+        </select>
+      </div>
 
       <div class="field">
-        <label for="paymentMethod">Payment method</label>
+        <label for="paymentMethod">Email to get Refund</label>
         <input type="text" id="paymentMethod" name="paymentMethod" required maxlength="200"
                placeholder="e.g. Bank Transfer, EcoCash, Skrill">
       </div>
 
       <div class="field">
-        <label for="tradeId">Trade ID</label>
+        <label for="tradeId">Refund Transaction ID</label>
         <input type="text" id="tradeId" name="tradeId" required maxlength="120"
                placeholder="e.g. TR-88421">
       </div>
@@ -139,13 +104,13 @@
       </div>
 
       <div class="form-actions">
-        <button type="submit" id="apply-trade-btn">Apply to selected file</button>
+        <button type="submit" id="save-btn">Save changes</button>
         <span id="last-saved" class="muted"></span>
         <span id="save-error" class="error hidden"></span>
       </div>
 
       <div class="live-preview-box">
-        <p class="muted preview-title">Live preview (based on selected file)</p>
+        <p class="muted preview-title">Live preview (selected index pages)</p>
         <div class="preview-rows">
           <div><span>Payment method</span><strong id="pv-method">—</strong></div>
           <div><span>Trade ID</span><strong id="pv-trade">—</strong></div>
